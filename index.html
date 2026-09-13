@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jogo da Bolha Dev</title>
-    <meta name="description" content="Um RPG por turnos em pixel art. Derrote o REAL OFICIAL!" />
+    <meta name="description" content="RPG de ação 3D em blocos. Derrote o REAL OFICIAL!" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%230b0a14'/%3E%3Crect x='3' y='2' width='10' height='10' fill='%23ffd54f'/%3E%3Crect x='5' y='4' width='2' height='2' fill='%230b0a14'/%3E%3Crect x='9' y='4' width='2' height='2' fill='%230b0a14'/%3E%3Crect x='4' y='8' width='8' height='2' fill='%23ef5350'/%3E%3Crect x='6' y='12' width='4' height='2' fill='%23ffd54f'/%3E%3C/svg%3E"
@@ -12,43 +12,126 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rubik:wght@400;600;800&display=swap"
       rel="stylesheet"
     />
-    <style>
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        background: #0b0a14;
-        overflow: hidden;
-      }
-      #game {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      canvas {
-        image-rendering: pixelated;
-        image-rendering: crisp-edges;
-      }
-      /* Força o carregamento da fonte antes do Phaser desenhar texto */
-      #font-preload {
-        position: absolute;
-        left: -9999px;
-        top: -9999px;
-        font-family: 'Press Start 2P', monospace;
-        opacity: 0;
-      }
-    </style>
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="game"></div>
-    <span id="font-preload">.</span>
+    <div id="app"></div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div id="crosshair"></div>
+      <div id="vignette"></div>
+
+      <div id="hud-left">
+        <div id="hero-card">
+          <img id="hero-portrait" alt="" />
+          <div>
+            <div id="hero-name" class="pixel">NICOLAS</div>
+            <div id="hero-level">Nível 1</div>
+          </div>
+        </div>
+        <div class="bar hp"><div id="hp-fill" class="fill"></div><span id="hp-text">100 / 100</span></div>
+        <div class="bar xp"><div id="xp-fill" class="fill"></div><span id="xp-text">XP 0 / 60</span></div>
+      </div>
+
+      <div id="hud-right">
+        <div id="objective"><div class="label pixel">OBJETIVO</div><div id="objective-text"></div></div>
+        <div id="kills">Mobs eliminados: <b id="kill-count">0</b></div>
+      </div>
+
+      <div id="boss-bar" class="hidden">
+        <div id="boss-name" class="pixel">REAL OFICIAL</div>
+        <div class="bar boss"><div id="boss-fill" class="fill"></div></div>
+      </div>
+
+      <div id="skills">
+        <div class="skill" id="skill-attack"><div class="key">LMB</div><div class="name">Atacar</div><div class="cd"></div></div>
+        <div class="skill" id="skill-special"><div class="key">RMB</div><div class="name" id="special-name">Especial</div><div class="cd" id="special-cd"></div></div>
+        <div class="skill" id="skill-heal"><div class="key">Q</div><div class="name" id="heal-name">Curar</div><div class="cd" id="heal-cd"></div></div>
+      </div>
+
+      <div id="toasts"></div>
+    </div>
+
+    <!-- TELAS -->
+    <div id="screen-title" class="screen">
+      <div class="screen-bg"></div>
+      <div class="screen-content">
+        <div class="kicker pixel">UM RPG DE AÇÃO 3D</div>
+        <h1 class="pixel">JOGO DA<br />BOLHA DEV</h1>
+        <p class="sub">Explore o mundo em blocos, elimine os mobs, derrote o Élio e destrua o <b>REAL OFICIAL</b>.</p>
+        <button id="btn-play" class="btn pixel">JOGAR</button>
+        <div class="controls-hint">
+          <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> mover</span>
+          <span><kbd>Mouse</kbd> olhar</span>
+          <span><kbd>Clique</kbd> atacar</span>
+          <span><kbd>Espaço</kbd> pular</span>
+          <span><kbd>Shift</kbd> correr</span>
+          <span><kbd>Q</kbd> curar</span>
+          <span><kbd>F5</kbd> câmera</span>
+        </div>
+        <div class="credits">Conty x Fitfolio · sem login, só coragem</div>
+      </div>
+    </div>
+
+    <div id="screen-select" class="screen hidden">
+      <div class="screen-bg dim"></div>
+      <div class="screen-content">
+        <h2 class="pixel">ESCOLHA SEU HEROI</h2>
+        <div id="hero-cards"></div>
+        <button id="btn-back" class="btn small">Voltar</button>
+      </div>
+    </div>
+
+    <div id="screen-pause" class="screen hidden">
+      <div class="screen-bg dim"></div>
+      <div class="screen-content">
+        <h2 class="pixel">PAUSADO</h2>
+        <p class="sub">Clique para voltar ao jogo. O cursor fica travado enquanto você joga; pressione <kbd>ESC</kbd> para soltar.</p>
+        <button id="btn-resume" class="btn pixel">VOLTAR AO JOGO</button>
+        <div class="controls-hint">
+          <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> mover</span>
+          <span><kbd>Clique</kbd> atacar</span>
+          <span><kbd>Botão direito</kbd> especial</span>
+          <span><kbd>Q</kbd> curar</span>
+          <span><kbd>Espaço</kbd> pular</span>
+          <span><kbd>Shift</kbd> correr</span>
+          <span><kbd>F5</kbd> 1ª / 3ª pessoa</span>
+          <span><kbd>M</kbd> som</span>
+        </div>
+        <button id="btn-quit" class="btn small">Sair para o título</button>
+      </div>
+    </div>
+
+    <div id="screen-dead" class="screen hidden">
+      <div class="screen-bg red"></div>
+      <div class="screen-content">
+        <h2 class="pixel red">VOCE VIROU CORTE</h2>
+        <p class="sub" id="dead-text">Você acorda no acampamento. O REAL OFICIAL ri com a boca cheia de pipoca.</p>
+        <button id="btn-respawn" class="btn pixel">RENASCER</button>
+      </div>
+    </div>
+
+    <div id="screen-victory" class="screen hidden">
+      <div class="screen-bg"></div>
+      <div class="screen-content">
+        <div class="kicker pixel">O REINADO DOS CORTES ACABOU</div>
+        <h1 class="pixel gold">VENCEU!</h1>
+        <p class="sub" id="victory-text"></p>
+        <button id="btn-again" class="btn pixel">JOGAR DE NOVO</button>
+      </div>
+    </div>
+
+    <div id="loading" class="screen">
+      <div class="screen-content">
+        <h2 class="pixel">GERANDO MUNDO...</h2>
+        <div class="bar load"><div id="load-fill" class="fill"></div></div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
