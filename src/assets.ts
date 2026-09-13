@@ -1,0 +1,73 @@
+/** Manifesto de imagens. Chave -> caminho relativo à pasta public/. */
+export const IMAGES: Record<string, string> = {
+  bg_title: 'assets/bg/title.png',
+  bg_map: 'assets/bg/map.png',
+  bg_forest: 'assets/bg/forest.png',
+  bg_river: 'assets/bg/river.png',
+  bg_valley: 'assets/bg/valley.png',
+  bg_tower: 'assets/bg/tower.png',
+  bg_throne: 'assets/bg/throne.png',
+
+  hero_nicolas: 'assets/heroes/nicolas.png',
+  hero_pedro: 'assets/heroes/pedro.png',
+  hero_mateus: 'assets/heroes/mateus.png',
+
+  portrait_nicolas: 'assets/portraits/nicolas.png',
+  portrait_pedro: 'assets/portraits/pedro.png',
+  portrait_mateus: 'assets/portraits/mateus.png',
+  portrait_william: 'assets/portraits/william.png',
+  portrait_anderson: 'assets/portraits/anderson.png',
+
+  enemy_bug: 'assets/enemies/bug.png',
+  enemy_cliente: 'assets/enemies/cliente.png',
+  enemy_reuniao: 'assets/enemies/reuniao.png',
+  enemy_elio: 'assets/enemies/elio.png',
+  enemy_real_oficial: 'assets/enemies/real_oficial.png',
+};
+
+/** Cores dos placeholders quando a arte ainda não existe. */
+export const PLACEHOLDER_COLORS: Record<string, number> = {
+  bg_title: 0x2b3a67,
+  bg_map: 0x3b6b3a,
+  bg_forest: 0x244d2a,
+  bg_river: 0x2e5b7a,
+  bg_valley: 0x6a5a2a,
+  bg_tower: 0x4a3a5a,
+  bg_throne: 0x5a2a2a,
+  hero_nicolas: 0x4fc3f7,
+  hero_pedro: 0xffd54f,
+  hero_mateus: 0xef5350,
+  portrait_nicolas: 0x4fc3f7,
+  portrait_pedro: 0xffd54f,
+  portrait_mateus: 0xef5350,
+  portrait_william: 0x81c784,
+  portrait_anderson: 0xba68c8,
+  enemy_bug: 0x8bc34a,
+  enemy_cliente: 0xff8a65,
+  enemy_reuniao: 0x90a4ae,
+  enemy_elio: 0x7986cb,
+  enemy_real_oficial: 0xd32f2f,
+};
+
+export const PLACEHOLDER_SIZES: Record<string, [number, number]> = {
+  bg_title: [960, 540],
+  bg_map: [960, 540],
+  bg_forest: [960, 540],
+  bg_river: [960, 540],
+  bg_valley: [960, 540],
+  bg_tower: [960, 540],
+  bg_throne: [960, 540],
+  hero_nicolas: [160, 200],
+  hero_pedro: [160, 200],
+  hero_mateus: [160, 200],
+  portrait_nicolas: [128, 128],
+  portrait_pedro: [128, 128],
+  portrait_mateus: [128, 128],
+  portrait_william: [128, 128],
+  portrait_anderson: [128, 128],
+  enemy_bug: [180, 180],
+  enemy_cliente: [180, 220],
+  enemy_reuniao: [200, 200],
+  enemy_elio: [200, 240],
+  enemy_real_oficial: [260, 260],
+};
