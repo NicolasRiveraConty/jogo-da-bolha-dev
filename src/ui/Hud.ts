@@ -24,12 +24,12 @@ export class Hud {
   private bossFill = $('boss-fill');
   private toasts = $('toasts');
   private vignette = $('vignette');
-  private specialCd = $('special-cd');
-  private healCd = $('heal-cd');
-  private specialSkill = $('skill-special');
-  private healSkill = $('skill-heal');
   private loading = $('loading');
   private loadFill = $('load-fill');
+  private prompt = $('prompt');
+  private cds = [$('sk1-cd'), $('sk2-cd'), $('sk3-cd')];
+  private skills = [$('skill-1'), $('skill-2'), $('skill-3')];
+  private hitTimer = 0;
 
   private screens: Record<Exclude<ScreenId, null>, HTMLElement> = {
     title: $('screen-title'),
@@ -38,14 +38,6 @@ export class Hud {
     dead: $('screen-dead'),
     victory: $('screen-victory'),
   };
-
-  private hitTimer = 0;
-
-  constructor() {
-    $('special-name').textContent = 'Especial';
-  }
-
-  // ------------------------------------------------------------ telas
 
   showScreen(id: ScreenId): void {
     for (const [k, el] of Object.entries(this.screens)) el.classList.toggle('hidden', k !== id);
@@ -77,7 +69,7 @@ export class Hud {
         <div class="company">${h.company}</div>
         <div class="desc">${h.description}</div>
         <div class="stats"><span>HP ${h.hp}</span><span>DANO ${h.damage}</span><span>VEL ${Math.round(h.speed * 100)}%</span></div>
-        <div class="skills"><b style="color:${h.accent}">RMB</b> ${h.special.name}<br/><b style="color:${h.accent}">Q</b> ${h.heal.name} (+${Math.round(h.heal.percent * 100)}% HP)</div>
+        <div class="skills">${h.skills.map((s, i) => `<b style="color:${h.accent}">${i + 1}</b> ${s.name}`).join('<br/>')}</div>
       `;
       card.addEventListener('mouseenter', () => onHover?.());
       card.addEventListener('click', () => onPick(h));
@@ -85,13 +77,12 @@ export class Hud {
     }
   }
 
-  // ------------------------------------------------------------ HUD
-
   setHero(hero: HeroDef): void {
     this.heroName.textContent = hero.name.toUpperCase();
     this.heroPortrait.src = hero.portrait;
-    $('special-name').textContent = hero.special.name;
-    $('heal-name').textContent = hero.heal.name;
+    $('sk1-name').textContent = hero.skills[0].name;
+    $('sk2-name').textContent = hero.skills[1].name;
+    $('sk3-name').textContent = hero.skills[2].name;
   }
 
   setHealth(hp: number, max: number): void {
@@ -117,6 +108,19 @@ export class Hud {
     this.killCount.textContent = String(n);
   }
 
+  setCoins(n: number): void {
+    $('coin-count').textContent = String(n);
+  }
+
+  setCookies(n: number): void {
+    $('cookie-count').textContent = String(n);
+  }
+
+  setPrompt(text: string): void {
+    this.prompt.textContent = text;
+    this.prompt.classList.toggle('hidden', !text);
+  }
+
   setBoss(name: string | null, frac = 0): void {
     this.bossBar.classList.toggle('hidden', !name);
     if (name) {
@@ -125,11 +129,11 @@ export class Hud {
     }
   }
 
-  setCooldowns(specialFrac: number, healFrac: number): void {
-    this.specialCd.style.transform = `scaleY(${specialFrac})`;
-    this.healCd.style.transform = `scaleY(${healFrac})`;
-    this.specialSkill.classList.toggle('ready', specialFrac <= 0);
-    this.healSkill.classList.toggle('ready', healFrac <= 0);
+  setCooldowns(fracs: [number, number, number]): void {
+    fracs.forEach((f, i) => {
+      this.cds[i].style.transform = `scaleY(${f})`;
+      this.skills[i].classList.toggle('ready', f <= 0);
+    });
   }
 
   hit(): void {

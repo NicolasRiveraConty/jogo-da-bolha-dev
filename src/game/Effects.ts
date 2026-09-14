@@ -11,12 +11,12 @@ interface Particle {
   gravity: number;
 }
 
-const particleGeo = new THREE.BoxGeometry(1, 1, 1);
-const particleMats = new Map<number, THREE.MeshBasicMaterial>();
-function pmat(color: number): THREE.MeshBasicMaterial {
+const particleGeo = new THREE.SphereGeometry(1, 8, 6);
+const particleMats = new Map<number, THREE.MeshStandardMaterial>();
+function pmat(color: number): THREE.MeshStandardMaterial {
   let m = particleMats.get(color);
   if (!m) {
-    m = new THREE.MeshBasicMaterial({ color });
+    m = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.6, roughness: 0.4 });
     particleMats.set(color, m);
   }
   return m;
@@ -96,8 +96,8 @@ export class Projectiles {
   constructor(private world: World) {}
 
   spawn(pos: THREE.Vector3, vel: THREE.Vector3, damage: number, color: number, size: number, fromPlayer = false): Projectile {
-    const geo = new THREE.BoxGeometry(size, size, size * 2.2);
-    const mat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 1.6 });
+    const geo = new THREE.SphereGeometry(size, 10, 8);
+    const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.copy(pos);
     mesh.lookAt(pos.clone().add(vel));

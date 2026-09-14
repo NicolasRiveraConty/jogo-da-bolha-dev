@@ -1,24 +1,23 @@
 import * as THREE from 'three';
-import { Block, BLOCK_TILES, buildAtlas, isOpaque, isSolid, tileUv } from './Blocks';
+import { makeRock, makeTree } from './Characters';
 import { Noise2D, Rng } from './Noise';
-
-export const CHUNK = 16;
-
-interface Face {
-  dir: [number, number, number];
-  corners: [number, number, number][]; // BL, BR, TR, TL vistos de fora
-  tile: 0 | 1 | 2; // índice em BLOCK_TILES: topo, base, lado
-  shade: number;
-}
-
-const FACES: Face[] = [
-  { dir: [1, 0, 0], corners: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]], tile: 2, shade: 0.8 },
-  { dir: [-1, 0, 0], corners: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]], tile: 2, shade: 0.8 },
-  { dir: [0, 0, 1], corners: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], tile: 2, shade: 0.9 },
-  { dir: [0, 0, -1], corners: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], tile: 2, shade: 0.9 },
-  { dir: [0, 1, 0], corners: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]], tile: 0, shade: 1.0 },
-  { dir: [0, -1, 0], corners: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]], tile: 1, shade: 0.55 },
-];
+import {
+  cobbleTexture,
+  colorMat,
+  darkBrickTexture,
+  dirtPathTexture,
+  fabricTexture,
+  flameTexture,
+  grassTexture,
+  pbrMat,
+  rockTexture,
+  roofTexture,
+  sandTexture,
+  snowTexture,
+  stoneBrickTexture,
+  waterNormalTexture,
+  woodTexture,
+} from './Textures';
 
 export interface Landmark {
   x: number;
@@ -26,101 +25,77 @@ export interface Landmark {
   z: number;
 }
 
+export type Obstacle =
+  | { kind: 'cyl'; x: number; z: number; r: number; y0: number; y1: number }
+  | { kind: 'box'; minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
+
 export class World {
-  readonly sizeX = 192;
-  readonly sizeZ = 192;
-  readonly height = 48;
-  readonly waterLevel = 10;
-
-  readonly blocks: Uint8Array;
+  readonly sizeX = 176;
+  readonly sizeZ = 176;
+  readonly res = 160;
+  readonly waterLevel = 7.4;
   readonly group = new THREE.Group();
-
-  private chunks = new Map<string, { solid: THREE.Mesh | null; water: THREE.Mesh | null }>();
-  private dirty = new Set<string>();
-  private solidMat: THREE.Material;
-  private waterMat: THREE.Material;
-
+  readonly heights: Float32Array;
   readonly spawn = new THREE.Vector3();
   readonly tower: Landmark = { x: 0, y: 0, z: 0 };
   readonly castle: Landmark = { x: 0, y: 0, z: 0 };
   readonly castleGate: Landmark = { x: 0, y: 0, z: 0 };
   readonly throne: Landmark = { x: 0, y: 0, z: 0 };
-  readonly gateBlocks: [number, number, number][] = [];
+  readonly npcSpots: Record<'banhos' | 'almeida' | 'anderson', THREE.Vector3> = {
+    banhos: new THREE.Vector3(),
+    almeida: new THREE.Vector3(),
+    anderson: new THREE.Vector3(),
+  };
   readonly castleBounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
-
-  private rng = new Rng(20260913);
+  readonly obstacles: Obstacle[] = [];
+  gateOpen = false;
+  private gateLeft!: THREE.Object3D;
+  private gateRight!: THREE.Object3D;
+  private water!: THREE.Mesh;
+  private waterN1: THREE.Texture;
+  private waterN2: THREE.Texture;
   private noise = new Noise2D(913);
   private noise2 = new Noise2D(1337);
+  private rng = new Rng(20260913);
+  private gateObstacle: Obstacle | null = null;
+  private fireLights: THREE.PointLight[] = [];
 
   constructor() {
-    this.blocks = new Uint8Array(this.sizeX * this.sizeZ * this.height);
-    const atlas = buildAtlas();
-    this.solidMat = new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true });
-    this.waterMat = new THREE.MeshLambertMaterial({
-      map: atlas,
-      transparent: true,
-      opacity: 0.72,
-      depthWrite: false,
-      vertexColors: true,
-    });
+    this.heights = new Float32Array(this.res * this.res);
+    this.waterN1 = waterNormalTexture();
+    this.waterN2 = waterNormalTexture();
+    this.waterN1.wrapS = this.waterN1.wrapT = THREE.RepeatWrapping;
+    this.waterN2.wrapS = this.waterN2.wrapT = THREE.RepeatWrapping;
   }
 
-  // ------------------------------------------------------------------ acesso
-
-  private idx(x: number, y: number, z: number): number {
-    return (y * this.sizeZ + z) * this.sizeX + x;
+  private hi(ix: number, iz: number): number {
+    const x = Math.max(0, Math.min(this.res - 1, ix));
+    const z = Math.max(0, Math.min(this.res - 1, iz));
+    return this.heights[z * this.res + x];
   }
 
-  inBounds(x: number, y: number, z: number): boolean {
-    return x >= 0 && z >= 0 && y >= 0 && x < this.sizeX && z < this.sizeZ && y < this.height;
+  heightAt(x: number, z: number): number {
+    const gx = (x / this.sizeX) * (this.res - 1);
+    const gz = (z / this.sizeZ) * (this.res - 1);
+    const x0 = Math.floor(gx);
+    const z0 = Math.floor(gz);
+    const tx = gx - x0;
+    const tz = gz - z0;
+    return this.hi(x0, z0) * (1 - tx) * (1 - tz) + this.hi(x0 + 1, z0) * tx * (1 - tz) + this.hi(x0, z0 + 1) * (1 - tx) * tz + this.hi(x0 + 1, z0 + 1) * tx * tz;
   }
 
-  get(x: number, y: number, z: number): number {
-    if (!this.inBounds(x, y, z)) return y < 0 ? Block.Stone : Block.Air;
-    return this.blocks[this.idx(x, y, z)];
-  }
-
-  set(x: number, y: number, z: number, b: number, markDirty = false): void {
-    if (!this.inBounds(x, y, z)) return;
-    this.blocks[this.idx(x, y, z)] = b;
-    if (markDirty) {
-      const cx = Math.floor(x / CHUNK);
-      const cz = Math.floor(z / CHUNK);
-      this.dirty.add(`${cx},${cz}`);
-      if (x % CHUNK === 0) this.dirty.add(`${cx - 1},${cz}`);
-      if (x % CHUNK === CHUNK - 1) this.dirty.add(`${cx + 1},${cz}`);
-      if (z % CHUNK === 0) this.dirty.add(`${cx},${cz - 1}`);
-      if (z % CHUNK === CHUNK - 1) this.dirty.add(`${cx},${cz + 1}`);
-    }
-  }
-
-  isSolidAt(x: number, y: number, z: number): boolean {
-    return isSolid(this.get(Math.floor(x), Math.floor(y), Math.floor(z)));
+  surfaceY(x: number, z: number): number {
+    return this.heightAt(x, z);
   }
 
   isWaterAt(x: number, y: number, z: number): boolean {
-    return this.get(Math.floor(x), Math.floor(y), Math.floor(z)) === Block.Water;
+    const h = this.heightAt(x, z);
+    return h < this.waterLevel - 0.15 && y <= this.waterLevel + 0.2;
   }
 
-  /** Altura do chão (y do topo do bloco sólido mais alto + 1). */
-  surfaceY(x: number, z: number): number {
-    const bx = Math.floor(x);
-    const bz = Math.floor(z);
-    for (let y = this.height - 1; y >= 0; y--) {
-      if (isSolid(this.get(bx, y, bz))) return y + 1;
-    }
-    return 0;
-  }
-
-  /** Bloco sólido mais alto que não seja folha (para spawn de mobs). */
-  groundBlock(x: number, z: number): { y: number; block: number } {
-    const bx = Math.floor(x);
-    const bz = Math.floor(z);
-    for (let y = this.height - 1; y >= 0; y--) {
-      const b = this.get(bx, y, bz);
-      if (b !== Block.Air && b !== Block.Leaves) return { y, block: b };
-    }
-    return { y: 0, block: Block.Air };
+  isSolidAt(x: number, y: number, z: number): boolean {
+    if (y < this.heightAt(x, z) - 0.02) return true;
+    return this.blocked(x, y, z, 0.08, 0.08);
   }
 
   insideCastle(x: number, z: number): boolean {
@@ -128,391 +103,464 @@ export class World {
     return x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ;
   }
 
-  // -------------------------------------------------------------- geração
+  blocked(x: number, y: number, z: number, r: number, h: number): boolean {
+    for (const o of this.obstacles) {
+      if (this.gateOpen && o === this.gateObstacle) continue;
+      if (o.kind === 'cyl') {
+        if (y + h < o.y0 || y > o.y1) continue;
+        const dx = x - o.x;
+        const dz = z - o.z;
+        if (dx * dx + dz * dz < (o.r + r) * (o.r + r)) return true;
+      } else {
+        if (y + h < o.minY || y > o.maxY) continue;
+        if (x + r > o.minX && x - r < o.maxX && z + r > o.minZ && z - r < o.maxZ) return true;
+      }
+    }
+    return false;
+  }
 
-  private terrainHeight(x: number, z: number): number {
-    const n = this.noise.fbm(x * 0.011, z * 0.011, 4);
-    const detail = this.noise2.fbm(x * 0.05, z * 0.05, 2);
-    let h = 13 + n * 7 + detail * 1.4;
-    // Montanhas ao fundo (lado +x +z), onde fica o castelo
-    const dx = x - this.sizeX * 0.82;
-    const dz = z - this.sizeZ * 0.82;
-    const dCastle = Math.sqrt(dx * dx + dz * dz);
-    const ridge = Math.max(0, 1 - dCastle / 70);
-    h += ridge * ridge * 9;
-    return h;
+  openGate(): void {
+    this.gateOpen = true;
+  }
+
+  update(dt: number, time: number): void {
+    if (this.water) {
+      const m = this.water.material as THREE.MeshPhysicalMaterial;
+      if (m.normalMap) {
+        m.normalMap.offset.x = time * 0.03;
+        m.normalMap.offset.y = time * 0.02;
+      }
+    }
+    if (this.gateOpen) {
+      this.gateLeft.rotation.y = THREE.MathUtils.lerp(this.gateLeft.rotation.y, -1.35, 1 - Math.pow(0.001, dt));
+      this.gateRight.rotation.y = THREE.MathUtils.lerp(this.gateRight.rotation.y, 1.35, 1 - Math.pow(0.001, dt));
+    }
+    for (const l of this.fireLights) l.intensity = 6 + Math.sin(time * 9 + l.position.x) * 1.4;
   }
 
   generate(onProgress?: (p: number) => void): void {
-    const { sizeX, sizeZ } = this;
-    const heights = new Float32Array(sizeX * sizeZ);
-    for (let z = 0; z < sizeZ; z++) {
-      for (let x = 0; x < sizeX; x++) heights[z * sizeX + x] = this.terrainHeight(x, z);
-    }
+    this.spawn.set(36, 0, 38);
+    this.tower.x = 108;
+    this.tower.z = 68;
+    this.castle.x = 142;
+    this.castle.z = 142;
 
-    // Planaltos das estruturas
-    this.spawn.set(34, 0, 34);
-    this.tower.x = 118;
-    this.tower.z = 62;
-    this.castle.x = Math.round(sizeX * 0.8);
-    this.castle.z = Math.round(sizeZ * 0.8);
+    const { res, sizeX, sizeZ } = this;
+    for (let z = 0; z < res; z++) {
+      for (let x = 0; x < res; x++) {
+        const wx = (x / (res - 1)) * sizeX;
+        const wz = (z / (res - 1)) * sizeZ;
+        const n = this.noise.fbm(wx * 0.012, wz * 0.012, 5);
+        const d = this.noise2.fbm(wx * 0.045, wz * 0.045, 3);
+        let h = 9.2 + n * 6.5 + d * 1.6;
+        const dx = wx - sizeX * 0.82;
+        const dz = wz - sizeZ * 0.82;
+        const ridge = Math.max(0, 1 - Math.hypot(dx, dz) / 62);
+        h += ridge * ridge * 8;
+        const lake = this.noise.fbm(wx * 0.02 + 40, wz * 0.02, 3);
+        if (lake > 0.35 && wx < 70 && wz < 90) h -= (lake - 0.35) * 10;
+        this.heights[z * res + x] = h;
+      }
+    }
+    onProgress?.(0.25);
 
     const flatten = (cx: number, cz: number, radius: number, level: number) => {
-      for (let z = cz - radius - 6; z <= cz + radius + 6; z++) {
-        for (let x = cx - radius - 6; x <= cx + radius + 6; x++) {
-          if (x < 0 || z < 0 || x >= sizeX || z >= sizeZ) continue;
-          const d = Math.max(Math.abs(x - cx), Math.abs(z - cz));
-          const i = z * sizeX + x;
-          if (d <= radius) heights[i] = level;
-          else {
-            const t = (d - radius) / 6;
-            heights[i] = heights[i] * t + level * (1 - t);
+      const gx = (cx / sizeX) * (res - 1);
+      const gz = (cz / sizeZ) * (res - 1);
+      const gr = (radius / sizeX) * (res - 1);
+      for (let z = 0; z < res; z++) {
+        for (let x = 0; x < res; x++) {
+          const d = Math.hypot(x - gx, z - gz);
+          if (d < gr) this.heights[z * res + x] = level;
+          else if (d < gr + 8) {
+            const t = (d - gr) / 8;
+            this.heights[z * res + x] = this.heights[z * res + x] * t + level * (1 - t);
           }
         }
       }
     };
 
-    const spawnLevel = Math.max(13, Math.round(heights[this.spawn.z * sizeX + this.spawn.x]));
-    flatten(this.spawn.x - 4, this.spawn.z, 11, spawnLevel);
-    const towerLevel = Math.max(13, Math.round(heights[this.tower.z * sizeX + this.tower.x]));
-    flatten(this.tower.x, this.tower.z, 9, towerLevel);
-    this.tower.y = towerLevel;
-    const castleLevel = Math.max(15, Math.round(heights[this.castle.z * sizeX + this.castle.x]));
-    flatten(this.castle.x, this.castle.z, 20, castleLevel);
-    this.castle.y = castleLevel;
+    const spawnH = this.heightAt(this.spawn.x, this.spawn.z);
+    flatten(this.spawn.x, this.spawn.z, 12, spawnH);
+    this.spawn.y = spawnH;
+    const towerH = Math.max(spawnH + 1, this.heightAt(this.tower.x, this.tower.z));
+    flatten(this.tower.x, this.tower.z, 10, towerH);
+    this.tower.y = towerH;
+    const castleH = Math.max(towerH + 1.5, this.heightAt(this.castle.x, this.castle.z));
+    flatten(this.castle.x, this.castle.z, 22, castleH);
+    this.castle.y = castleH;
 
-    // Preenchimento
-    for (let z = 0; z < sizeZ; z++) {
-      for (let x = 0; x < sizeX; x++) {
-        const h = Math.max(2, Math.min(this.height - 12, Math.round(heights[z * sizeX + x])));
-        for (let y = 0; y <= h; y++) {
-          let b: number = Block.Stone;
-          if (y === h) {
-            if (h <= this.waterLevel + 1) b = Block.Sand;
-            else if (h >= 30) b = Block.Snow;
-            else b = Block.Grass;
-          } else if (y > h - 3) b = h <= this.waterLevel + 1 ? Block.Sand : Block.Dirt;
-          else if (this.rng.next() < 0.03) b = Block.Gravel;
-          this.set(x, y, z, b);
-        }
-        for (let y = h + 1; y <= this.waterLevel; y++) this.set(x, y, z, Block.Water);
-      }
-      if (z % 16 === 0) onProgress?.((z / sizeZ) * 0.6);
-    }
+    this.carvePath(this.spawn.x, this.spawn.z, this.tower.x, this.tower.z);
+    this.carvePath(this.tower.x, this.tower.z, this.castle.x - 18, this.castle.z);
+    onProgress?.(0.4);
 
-    this.spawn.y = spawnLevel + 1;
-    this.plantTrees();
+    this.buildTerrain();
+    onProgress?.(0.55);
+    this.buildWater();
+    this.scatterNature();
     onProgress?.(0.7);
-    this.buildCamp(spawnLevel);
-    this.buildTower(towerLevel);
-    this.buildCastle(castleLevel);
-    onProgress?.(0.8);
+    this.buildCamp(spawnH);
+    this.buildTower(towerH);
+    this.buildCastle(castleH);
+    onProgress?.(0.95);
   }
 
-  private plantTrees() {
-    const rng = new Rng(777);
-    for (let z = 3; z < this.sizeZ - 3; z++) {
-      for (let x = 3; x < this.sizeX - 3; x++) {
-        if (rng.next() > 0.0085) continue;
-        const g = this.groundBlock(x, z);
-        if (g.block !== Block.Grass) continue;
-        if (this.nearLandmark(x, z, 12)) continue;
-        const trunk = rng.int(4, 6);
-        for (let y = 1; y <= trunk; y++) this.set(x, g.y + y, z, Block.Log);
-        const top = g.y + trunk;
-        for (let dy = -2; dy <= 2; dy++) {
-          const r = dy === 2 ? 1 : dy === -2 ? 1 : 2;
-          for (let dx = -r; dx <= r; dx++) {
-            for (let dz = -r; dz <= r; dz++) {
-              if (Math.abs(dx) === r && Math.abs(dz) === r && rng.next() < 0.5) continue;
-              if (dx === 0 && dz === 0 && dy <= 0) continue;
-              if (this.get(x + dx, top + dy, z + dz) === Block.Air) this.set(x + dx, top + dy, z + dz, Block.Leaves);
-            }
-          }
+  private carvePath(x0: number, z0: number, x1: number, z1: number) {
+    const steps = 80;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = x0 + (x1 - x0) * t;
+      const z = z0 + (z1 - z0) * t;
+      const h = this.heightAt(x, z);
+      const gx = (x / this.sizeX) * (this.res - 1);
+      const gz = (z / this.sizeZ) * (this.res - 1);
+      for (let dz = -3; dz <= 3; dz++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          const ix = Math.round(gx + dx);
+          const iz = Math.round(gz + dz);
+          if (ix < 0 || iz < 0 || ix >= this.res || iz >= this.res) continue;
+          const fall = 1 - Math.hypot(dx, dz) / 4;
+          if (fall <= 0) continue;
+          const idx = iz * this.res + ix;
+          this.heights[idx] = this.heights[idx] * (1 - fall * 0.7) + h * fall * 0.7;
         }
       }
+    }
+  }
+
+  private buildTerrain() {
+    const geo = new THREE.PlaneGeometry(this.sizeX, this.sizeZ, this.res - 1, this.res - 1);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position;
+    const color = new Float32Array(pos.count * 3);
+    const grass = new THREE.Color(0x4d8a38);
+    const dirt = new THREE.Color(0x8a6a42);
+    const sand = new THREE.Color(0xd2c08a);
+    const rock = new THREE.Color(0x8a8680);
+    const snow = new THREE.Color(0xeef4fa);
+    const tmp = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i) + this.sizeX / 2;
+      const z = pos.getZ(i) + this.sizeZ / 2;
+      const ix = Math.round((x / this.sizeX) * (this.res - 1));
+      const iz = Math.round((z / this.sizeZ) * (this.res - 1));
+      const h = this.hi(ix, iz);
+      pos.setY(i, h);
+      const slope = Math.abs(this.hi(ix + 1, iz) - this.hi(ix - 1, iz)) + Math.abs(this.hi(ix, iz + 1) - this.hi(ix, iz - 1));
+      if (h < this.waterLevel + 0.6) tmp.copy(sand);
+      else if (h > 22) tmp.copy(snow);
+      else if (slope > 2.4) tmp.copy(rock);
+      else {
+        const path = this.nearPath(x, z);
+        tmp.copy(grass).lerp(dirt, path);
+      }
+      color[i * 3] = tmp.r;
+      color[i * 3 + 1] = tmp.g;
+      color[i * 3 + 2] = tmp.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    geo.computeVertexNormals();
+    const grassSet = grassTexture();
+    grassSet.map.repeat.set(42, 42);
+    grassSet.normalMap.repeat.set(42, 42);
+    grassSet.roughnessMap.repeat.set(42, 42);
+    const mat = pbrMat(grassSet, { roughness: 0.92, bump: 1.4 });
+    mat.vertexColors = true;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(this.sizeX / 2, 0, this.sizeZ / 2);
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    this.group.add(mesh);
+  }
+
+  private nearPath(x: number, z: number): number {
+    const d1 = distToSeg(x, z, this.spawn.x, this.spawn.z, this.tower.x, this.tower.z);
+    const d2 = distToSeg(x, z, this.tower.x, this.tower.z, this.castle.x - 18, this.castle.z);
+    const d = Math.min(d1, d2);
+    return THREE.MathUtils.clamp(1 - (d - 1.2) / 2.2, 0, 1);
+  }
+
+  private buildWater() {
+    const geo = new THREE.PlaneGeometry(this.sizeX + 20, this.sizeZ + 20, 32, 32);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: 0x1a5a88,
+      roughness: 0.28,
+      metalness: 0.02,
+      transmission: 0.12,
+      thickness: 0.8,
+      transparent: true,
+      opacity: 0.88,
+      envMapIntensity: 0.35,
+      normalMap: this.waterN1,
+      normalScale: new THREE.Vector2(0.45, 0.45),
+    });
+    this.water = new THREE.Mesh(geo, mat);
+    this.water.position.set(this.sizeX / 2, this.waterLevel, this.sizeZ / 2);
+    this.water.receiveShadow = true;
+    this.group.add(this.water);
+  }
+
+  private scatterNature() {
+    const rng = this.rng;
+    for (let i = 0; i < 140; i++) {
+      const x = rng.range(8, this.sizeX - 8);
+      const z = rng.range(8, this.sizeZ - 8);
+      if (this.nearLandmark(x, z, 14)) continue;
+      if (this.nearPath(x, z) > 0.4) continue;
+      const h = this.heightAt(x, z);
+      if (h < this.waterLevel + 0.5 || h > 20) continue;
+      const tree = makeTree(rng.int(0, 99));
+      tree.position.set(x, h, z);
+      tree.rotation.y = rng.range(0, Math.PI * 2);
+      const s = rng.range(0.85, 1.25);
+      tree.scale.setScalar(s);
+      this.group.add(tree);
+      this.obstacles.push({ kind: 'cyl', x, z, r: 0.28 * s, y0: h, y1: h + 3.5 * s });
+    }
+    for (let i = 0; i < 80; i++) {
+      const x = rng.range(6, this.sizeX - 6);
+      const z = rng.range(6, this.sizeZ - 6);
+      if (this.nearLandmark(x, z, 10)) continue;
+      const h = this.heightAt(x, z);
+      if (h < this.waterLevel - 0.2) continue;
+      const rock = makeRock(rng.int(0, 20));
+      rock.position.set(x, h + 0.05, z);
+      rock.rotation.set(rng.range(0, 0.4), rng.range(0, 6), rng.range(0, 0.4));
+      const s = rng.range(0.6, 1.6);
+      rock.scale.setScalar(s);
+      this.group.add(rock);
     }
   }
 
   private nearLandmark(x: number, z: number, r: number): boolean {
-    const d = (l: { x: number; z: number }) => Math.max(Math.abs(x - l.x), Math.abs(z - l.z));
-    return d(this.spawn) < r || d(this.tower) < r || d(this.castle) < r + 14;
+    const d = (l: { x: number; z: number }) => Math.hypot(x - l.x, z - l.z);
+    return d(this.spawn) < r || d(this.tower) < r || d(this.castle) < r + 16;
+  }
+
+  private addBoxObs(minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number) {
+    this.obstacles.push({ kind: 'box', minX, maxX, minY, maxY, minZ, maxZ });
   }
 
   private buildCamp(level: number) {
     const { x, z } = this.spawn;
-    // Fogueira (ao lado, fora da linha de visão inicial)
-    const fx = x + 1;
-    const fz = z - 5;
-    this.set(fx, level + 1, fz, Block.Log);
-    this.set(fx, level + 2, fz, Block.Lava);
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) this.set(fx + dx, level + 1, fz + dz, Block.Cobble);
-    // Cabana (atrás do spawn)
-    const hx = x - 13;
-    const hz = z - 3;
-    for (let dx = 0; dx < 6; dx++) {
-      for (let dz = 0; dz < 6; dz++) {
-        this.set(hx + dx, level, hz + dz, Block.Plank);
-        for (let dy = 1; dy <= 3; dy++) {
-          const wall = dx === 0 || dz === 0 || dx === 5 || dz === 5;
-          if (!wall) continue;
-          const door = dx === 5 && (dz === 2 || dz === 3) && dy <= 2;
-          const window = dy === 2 && ((dz === 0 && dx === 2) || (dx === 0 && dz === 3));
-          if (door || window) continue;
-          this.set(hx + dx, level + dy, hz + dz, dy === 3 || (dx === 0 || dx === 5) ? Block.Log : Block.Plank);
-        }
-        this.set(hx + dx, level + 4, hz + dz, Block.Plank);
-      }
+    const wood = pbrMat(woodTexture(), { roughness: 0.75 });
+    const roof = pbrMat(roofTexture(), { roughness: 0.7 });
+    const cabin = new THREE.Group();
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.12, 5.2), wood);
+    floor.position.set(x - 8, level + 0.06, z - 1);
+    floor.castShadow = floor.receiveShadow = true;
+    cabin.add(floor);
+    const wallH = 2.4;
+    const walls = [
+      [x - 8, level + wallH / 2, z - 3.5, 5.2, wallH, 0.18],
+      [x - 8, level + wallH / 2, z + 1.5, 5.2, wallH, 0.18],
+      [x - 10.5, level + wallH / 2, z - 1, 0.18, wallH, 5.2],
+    ];
+    for (const [wx, wy, wz, sx, sy, sz] of walls) {
+      const w = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), wood);
+      w.position.set(wx, wy, wz);
+      w.castShadow = w.receiveShadow = true;
+      cabin.add(w);
     }
-    for (let dx = 1; dx < 5; dx++) for (let dz = 1; dz < 5; dz++) this.set(hx + dx, level + 5, hz + dz, Block.Plank);
-    // Tochas (lava para brilhar)
-    this.set(hx + 6, level + 3, hz + 1, Block.Lava);
-    this.set(hx + 6, level + 3, hz + 4, Block.Lava);
+    const front = new THREE.Mesh(new THREE.BoxGeometry(0.18, wallH, 1.7), wood);
+    front.position.set(x - 5.5, level + wallH / 2, z - 2.4);
+    front.castShadow = true;
+    cabin.add(front);
+    const front2 = front.clone();
+    front2.position.z = z + 0.4;
+    cabin.add(front2);
+    const roofM = new THREE.Mesh(new THREE.ConeGeometry(4.2, 1.8, 4), roof);
+    roofM.position.set(x - 8, level + wallH + 0.9, z - 1);
+    roofM.rotation.y = Math.PI / 4;
+    roofM.castShadow = true;
+    cabin.add(roofM);
+    this.group.add(cabin);
+    this.addBoxObs(x - 10.7, x - 5.4, level, level + 4, z - 3.7, z + 1.7);
+
+    this.addCampfire(x + 1.5, level, z - 4);
+
+    this.npcSpots.banhos.set(x + 3.2, level, z - 1.5);
+    this.npcSpots.almeida.set(x - 2.2, level, z + 3.2);
+    this.npcSpots.anderson.set(x + 4.5, level, z + 3.5);
+  }
+
+  private addCampfire(x: number, y: number, z: number) {
+    const stone = pbrMat(rockTexture(), { roughness: 0.9 });
+    const ring = new THREE.Group();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const s = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), stone);
+      s.position.set(x + Math.cos(a) * 0.55, y + 0.1, z + Math.sin(a) * 0.55);
+      s.castShadow = true;
+      ring.add(s);
+    }
+    const log = pbrMat(woodTexture(), { roughness: 0.9 });
+    for (let i = 0; i < 3; i++) {
+      const l = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.7, 6), log);
+      l.position.set(x, y + 0.12, z);
+      l.rotation.set(0.2, (i / 3) * Math.PI, Math.PI / 2);
+      ring.add(l);
+    }
+    const flame = new THREE.Sprite(new THREE.SpriteMaterial({ map: flameTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    flame.position.set(x, y + 0.55, z);
+    flame.scale.set(0.9, 1.3, 1);
+    ring.add(flame);
+    const light = new THREE.PointLight(0xff7a30, 7, 12, 1.6);
+    light.position.set(x, y + 0.7, z);
+    light.castShadow = true;
+    light.shadow.mapSize.set(512, 512);
+    ring.add(light);
+    this.fireLights.push(light);
+    this.group.add(ring);
   }
 
   private buildTower(level: number) {
-    const { x: cx, z: cz } = this.tower;
-    const R = 4;
-    const H = 15;
-    for (let dx = -R; dx <= R; dx++) {
-      for (let dz = -R; dz <= R; dz++) {
-        const d = Math.sqrt(dx * dx + dz * dz);
-        if (d > R + 0.5) continue;
-        const wall = d > R - 1.2;
-        for (let dy = 0; dy <= H; dy++) {
-          if (dy === 0) {
-            this.set(cx + dx, level + dy, cz + dz, Block.Cobble);
-            continue;
-          }
-          if (!wall) {
-            this.set(cx + dx, level + dy, cz + dz, Block.Air);
-            continue;
-          }
-          // porta voltada para o spawn (-x)
-          const door = dx <= -R + 1 && Math.abs(dz) <= 1 && dy <= 3;
-          const window = dy % 5 === 2 && (Math.abs(dx) < 1 || Math.abs(dz) < 1) && dy > 3;
-          if (door || window) continue;
-          this.set(cx + dx, level + dy, cz + dz, dy === H && (dx + dz) % 2 === 0 ? Block.Air : Block.Cobble);
-        }
-      }
-    }
-    // Andar do topo + tocha
-    this.set(cx, level + H + 1, cz, Block.Lava);
-    // Placa: moedas de ouro na entrada
-    this.set(cx - R - 2, level + 1, cz - 2, Block.Gold);
-    this.set(cx - R - 2, level + 1, cz + 2, Block.Gold);
+    const { x, z } = this.tower;
+    const stone = pbrMat(stoneBrickTexture(), { roughness: 0.82, bump: 1.2 });
+    const dark = pbrMat(cobbleTexture(), { roughness: 0.85 });
+    const roof = pbrMat(roofTexture(), { roughness: 0.7 });
+    const r = 3.4;
+    const h = 11;
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.25, h, 20, 1, true), stone);
+    wall.position.set(x, level + h / 2, z);
+    wall.castShadow = wall.receiveShadow = true;
+    this.group.add(wall);
+    const floor = new THREE.Mesh(new THREE.CylinderGeometry(r - 0.05, r - 0.05, 0.2, 20), dark);
+    floor.position.set(x, level + 0.1, z);
+    floor.receiveShadow = true;
+    this.group.add(floor);
+    const top = new THREE.Mesh(new THREE.ConeGeometry(r + 0.5, 3.2, 20), roof);
+    top.position.set(x, level + h + 1.5, z);
+    top.castShadow = true;
+    this.group.add(top);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.6, 0.4), pbrMat(woodTexture(), { roughness: 0.7 }));
+    door.position.set(x - r, level + 1.3, z);
+    this.group.add(door);
+    this.obstacles.push({ kind: 'cyl', x, z, r: r - 0.15, y0: level + 0.4, y1: level + h });
+    this.addCampfire(x - r - 3.5, level, z);
   }
 
   private buildCastle(level: number) {
     const { x: cx, z: cz } = this.castle;
-    const half = 17;
-    const wallH = 9;
+    const half = 16;
     const b = this.castleBounds;
     b.minX = cx - half;
     b.maxX = cx + half;
     b.minZ = cz - half;
     b.maxZ = cz + half;
+    const brick = pbrMat(darkBrickTexture(), { roughness: 0.8, bump: 1.1 });
+    const stone = pbrMat(stoneBrickTexture(), { roughness: 0.82 });
+    const cobble = pbrMat(cobbleTexture(), { roughness: 0.85 });
+    const gold = colorMat(0xe6c35a, { metalness: 0.8, roughness: 0.3, emissive: 0x553300, emissiveIntensity: 0.12 });
+    const carpet = pbrMat(fabricTexture([179, 32, 42], 'carpet'), { roughness: 0.95 });
 
-    // Piso
-    for (let x = cx - half; x <= cx + half; x++) {
-      for (let z = cz - half; z <= cz + half; z++) {
-        this.set(x, level, z, Block.DarkBrick);
-        for (let y = level + 1; y < level + 16; y++) this.set(x, y, z, Block.Air);
-      }
-    }
-    // Muralhas
-    for (let x = cx - half; x <= cx + half; x++) {
-      for (let z = cz - half; z <= cz + half; z++) {
-        const edgeX = x === cx - half || x === cx + half;
-        const edgeZ = z === cz - half || z === cz + half;
-        if (!edgeX && !edgeZ) continue;
-        for (let y = 1; y <= wallH; y++) this.set(x, level + y, z, Block.Brick);
-        // ameias
-        const along = edgeX ? z : x;
-        if (along % 2 === 0) this.set(x, level + wallH + 1, z, Block.Brick);
-      }
-    }
-    // Torres nos cantos
-    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-      const tx = cx + sx * half;
-      const tz = cz + sz * half;
-      for (let dx = -2; dx <= 2; dx++) {
-        for (let dz = -2; dz <= 2; dz++) {
-          for (let y = 1; y <= wallH + 5; y++) {
-            const outer = Math.abs(dx) === 2 || Math.abs(dz) === 2;
-            const top = y === wallH + 5 && (dx + dz) % 2 !== 0;
-            if (y === wallH + 5 && !outer) continue;
-            if (top) continue;
-            this.set(tx + dx, level + y, tz + dz, outer || y > wallH ? Block.DarkBrick : Block.Air);
-          }
-        }
-      }
-      this.set(tx, level + wallH + 6, tz, Block.Lava);
-    }
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(half * 2 - 0.4, 0.25, half * 2 - 0.4), cobble);
+    floor.position.set(cx, level + 0.12, cz);
+    floor.receiveShadow = true;
+    this.group.add(floor);
 
-    // Portão (lado -x, voltado para o mundo) selado com ouro até o Élio cair
+    const wallH = 8;
+    const thick = 1.4;
+    const walls: [number, number, number, number, number, number][] = [
+      [cx, level + wallH / 2, cz - half, half * 2, wallH, thick],
+      [cx, level + wallH / 2, cz + half, half * 2, wallH, thick],
+      [cx + half, level + wallH / 2, cz, thick, wallH, half * 2],
+    ];
+    for (const [wx, wy, wz, sx, sy, sz] of walls) {
+      const w = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), brick);
+      w.position.set(wx, wy, wz);
+      w.castShadow = w.receiveShadow = true;
+      this.group.add(w);
+      this.addBoxObs(wx - sx / 2, wx + sx / 2, wy - sy / 2, wy + sy / 2, wz - sz / 2, wz + sz / 2);
+    }
+    // parede da frente com buraco de portão
     const gx = cx - half;
+    const leftW = new THREE.Mesh(new THREE.BoxGeometry(thick, wallH, half - 2.2), brick);
+    leftW.position.set(gx, level + wallH / 2, cz - (half + 2.2) / 2 + 0.1);
+    leftW.castShadow = true;
+    this.group.add(leftW);
+    const rightW = leftW.clone();
+    rightW.position.z = cz + (half + 2.2) / 2 - 0.1;
+    this.group.add(rightW);
+    this.addBoxObs(gx - thick / 2, gx + thick / 2, level, level + wallH, cz - half, cz - 2.4);
+    this.addBoxObs(gx - thick / 2, gx + thick / 2, level, level + wallH, cz + 2.4, cz + half);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(thick, 2.2, 5.2), brick);
+    lintel.position.set(gx, level + 6.5, cz);
+    this.group.add(lintel);
+
     this.castleGate.x = gx;
     this.castleGate.y = level + 1;
     this.castleGate.z = cz;
-    for (let dz = -2; dz <= 2; dz++) {
-      for (let y = 1; y <= 5; y++) {
-        this.set(gx, level + y, cz + dz, Block.Gold);
-        this.gateBlocks.push([gx, level + y, cz + dz]);
-      }
-      this.set(gx, level + 6, cz + dz, Block.DarkBrick);
-    }
-    // Tapete até o trono
-    for (let x = gx + 1; x <= cx + half - 6; x++) for (let dz = -1; dz <= 1; dz++) this.set(x, level, cz + dz, Block.Carpet);
+    this.gateLeft = new THREE.Mesh(new THREE.BoxGeometry(0.22, 5.2, 2.4), gold);
+    this.gateLeft.position.set(gx, level + 2.7, cz - 1.2);
+    this.group.add(this.gateLeft);
+    this.gateRight = new THREE.Mesh(new THREE.BoxGeometry(0.22, 5.2, 2.4), gold);
+    this.gateRight.position.set(gx, level + 2.7, cz + 1.2);
+    this.group.add(this.gateRight);
+    this.addBoxObs(gx - 0.4, gx + 0.4, level, level + 5.4, cz - 2.4, cz + 2.4);
+    this.gateObstacle = this.obstacles[this.obstacles.length - 1];
 
-    // Trono no lado +x
-    const tx = cx + half - 5;
-    this.throne.x = tx - 3;
-    this.throne.y = level + 1;
+    const rug = new THREE.Mesh(new THREE.BoxGeometry(half * 1.4, 0.04, 2.4), carpet);
+    rug.position.set(cx - 2, level + 0.26, cz);
+    rug.receiveShadow = true;
+    this.group.add(rug);
+
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      const tx = cx + sx * half;
+      const tz = cz + sz * half;
+      const tw = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.6, wallH + 4, 14), stone);
+      tw.position.set(tx, level + (wallH + 4) / 2, tz);
+      tw.castShadow = true;
+      this.group.add(tw);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(2.8, 2.6, 12), pbrMat(roofTexture(), { roughness: 0.7 }));
+      cone.position.set(tx, level + wallH + 5.1, tz);
+      cone.castShadow = true;
+      this.group.add(cone);
+      this.obstacles.push({ kind: 'cyl', x: tx, z: tz, r: 2.3, y0: level, y1: level + wallH + 4 });
+      const torch = new THREE.PointLight(0xff7a30, 8, 14, 1.8);
+      torch.position.set(tx, level + wallH + 2, tz);
+      this.group.add(torch);
+      this.fireLights.push(torch);
+    }
+
+    const throneX = cx + half - 5;
+    this.throne.x = throneX - 2;
+    this.throne.y = level + 0.3;
     this.throne.z = cz;
-    for (let dz = -3; dz <= 3; dz++) for (let dx = 0; dx <= 3; dx++) this.set(tx + dx, level + 1, cz + dz, Block.Gold);
-    for (let dz = -2; dz <= 2; dz++) this.set(tx + 3, level + 2, cz + dz, Block.Gold);
-    for (let dz = -2; dz <= 2; dz++) for (let y = 3; y <= 5; y++) if (Math.abs(dz) === 2 || y === 5) this.set(tx + 3, level + y, cz + dz, Block.Gold);
-    for (let dz = -1; dz <= 1; dz++) this.set(tx + 3, level + 3, cz + dz, Block.Carpet);
-    this.set(tx + 3, level + 6, cz, Block.Gold);
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 2.4), gold);
+    seat.position.set(throneX, level + 0.7, cz);
+    this.group.add(seat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.6, 2.4), gold);
+    back.position.set(throneX + 0.9, level + 1.8, cz);
+    this.group.add(back);
 
-    // Telões
     for (const side of [-1, 1]) {
-      const z = cz + side * half;
-      for (let x = cx - 10; x <= cx - 4; x++) for (let y = 3; y <= 6; y++) this.set(x, level + y, z - side, Block.Screen);
-      for (let x = cx + 2; x <= cx + 8; x++) for (let y = 3; y <= 6; y++) this.set(x, level + y, z - side, Block.Screen);
-    }
-    // Pilares
-    for (const [px, pz] of [[cx - 8, cz - 8], [cx - 8, cz + 8], [cx + 4, cz - 8], [cx + 4, cz + 8]]) {
-      for (let y = 1; y <= 7; y++) this.set(px, level + y, pz, Block.Cobble);
-      this.set(px, level + 8, pz, Block.Lava);
-    }
-    // Baldes de pipoca espalhados
-    const rng = new Rng(99);
-    for (let i = 0; i < 14; i++) {
-      const px = cx + rng.int(-half + 3, half - 8);
-      const pz = cz + rng.int(-half + 3, half - 3);
-      if (this.get(px, level + 1, pz) === Block.Air) this.set(px, level + 1, pz, Block.Popcorn);
+      const screens = new THREE.Mesh(new THREE.BoxGeometry(6, 3.2, 0.12), colorMat(0x3a1a60, { emissive: 0x6a2fb8, emissiveIntensity: 0.55, roughness: 0.3 }));
+      screens.position.set(cx - 4, level + 3.4, cz + side * (half - 1.1));
+      this.group.add(screens);
     }
   }
 
-  /** Remove o portão de ouro (chamado quando o Élio é derrotado). */
-  openGate(): void {
-    for (const [x, y, z] of this.gateBlocks) this.set(x, y, z, Block.Air, true);
-    this.rebuildDirty();
+  /** Fecha o portão no respawn/reset. */
+  resetGate(): void {
+    this.gateOpen = false;
+    if (this.gateLeft) this.gateLeft.rotation.y = 0;
+    if (this.gateRight) this.gateRight.rotation.y = 0;
   }
 
-  // ------------------------------------------------------------------ mesh
-
-  buildAll(onProgress?: (p: number) => void): void {
-    const nx = this.sizeX / CHUNK;
-    const nz = this.sizeZ / CHUNK;
-    let done = 0;
-    for (let cz = 0; cz < nz; cz++) {
-      for (let cx = 0; cx < nx; cx++) {
-        this.buildChunk(cx, cz);
-        done++;
-      }
-      onProgress?.(0.8 + (done / (nx * nz)) * 0.2);
-    }
-  }
-
-  rebuildDirty(): void {
-    for (const key of this.dirty) {
-      const [cx, cz] = key.split(',').map(Number);
-      if (cx < 0 || cz < 0 || cx >= this.sizeX / CHUNK || cz >= this.sizeZ / CHUNK) continue;
-      this.buildChunk(cx, cz);
-    }
-    this.dirty.clear();
-  }
-
-  private buildChunk(cx: number, cz: number): void {
-    const key = `${cx},${cz}`;
-    const old = this.chunks.get(key);
-    if (old) {
-      for (const m of [old.solid, old.water]) {
-        if (!m) continue;
-        this.group.remove(m);
-        m.geometry.dispose();
-      }
-    }
-
-    const solid = new MeshBuilder();
-    const water = new MeshBuilder();
-    const x0 = cx * CHUNK;
-    const z0 = cz * CHUNK;
-
-    for (let y = 0; y < this.height; y++) {
-      for (let z = z0; z < z0 + CHUNK; z++) {
-        for (let x = x0; x < x0 + CHUNK; x++) {
-          const b = this.get(x, y, z);
-          if (b === Block.Air) continue;
-          const tiles = BLOCK_TILES[b];
-          if (!tiles) continue;
-          const isWater = b === Block.Water;
-          for (const f of FACES) {
-            const nb = this.get(x + f.dir[0], y + f.dir[1], z + f.dir[2]);
-            if (isWater) {
-              if (nb !== Block.Air) continue;
-            } else if (isOpaque(nb)) continue;
-            const builder = isWater ? water : solid;
-            // Oclusão simples: escurece faces laterais com bloco sólido acima do vizinho
-            let ao = 1;
-            if (f.dir[1] === 0 && isOpaque(this.get(x + f.dir[0], y + 1, z + f.dir[2]))) ao = 0.82;
-            const glow = b === Block.Lava ? 2.2 : b === Block.Screen ? 1.4 : 1;
-            builder.addFace(x, y, z, f, tileUv(tiles[f.tile]), f.shade * ao * glow);
-          }
-        }
-      }
-    }
-
-    const entry = { solid: null as THREE.Mesh | null, water: null as THREE.Mesh | null };
-    if (solid.count > 0) {
-      entry.solid = new THREE.Mesh(solid.build(), this.solidMat);
-      entry.solid.castShadow = true;
-      entry.solid.receiveShadow = true;
-      this.group.add(entry.solid);
-    }
-    if (water.count > 0) {
-      entry.water = new THREE.Mesh(water.build(), this.waterMat);
-      entry.water.receiveShadow = true;
-      this.group.add(entry.water);
-    }
-    this.chunks.set(key, entry);
+  gateBlocking(): boolean {
+    return !this.gateOpen;
   }
 }
 
-class MeshBuilder {
-  positions: number[] = [];
-  normals: number[] = [];
-  uvs: number[] = [];
-  colors: number[] = [];
-  indices: number[] = [];
-  count = 0;
-
-  addFace(x: number, y: number, z: number, f: Face, uv: [number, number, number, number], shade: number) {
-    const base = this.count * 4;
-    const [u0, v0, u1, v1] = uv;
-    const uvList = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
-    for (let i = 0; i < 4; i++) {
-      const c = f.corners[i];
-      this.positions.push(x + c[0], y + c[1], z + c[2]);
-      this.normals.push(f.dir[0], f.dir[1], f.dir[2]);
-      this.uvs.push(uvList[i][0], uvList[i][1]);
-      this.colors.push(shade, shade, shade);
-    }
-    this.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    this.count++;
-  }
-
-  build(): THREE.BufferGeometry {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.positions, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.normals, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uvs, 2));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.colors, 3));
-    g.setIndex(this.indices);
-    g.computeBoundingSphere();
-    return g;
-  }
+function distToSeg(px: number, pz: number, ax: number, az: number, bx: number, bz: number): number {
+  const abx = bx - ax;
+  const abz = bz - az;
+  const t = THREE.MathUtils.clamp(((px - ax) * abx + (pz - az) * abz) / (abx * abx + abz * abz + 1e-6), 0, 1);
+  return Math.hypot(px - (ax + abx * t), pz - (az + abz * t));
 }
+
+void dirtPathTexture;
+void sandTexture;
+void snowTexture;

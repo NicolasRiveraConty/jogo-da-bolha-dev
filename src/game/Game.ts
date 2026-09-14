@@ -1,30 +1,47 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { Sfx } from '../audio/Sfx';
 import type { Hud } from '../ui/Hud';
-import { levelForXp, XP_TABLE, type HeroDef, type MobKind } from './Data';
+import { LOOKS, makePerson } from './Characters';
+import { levelForXp, NPCS, XP_TABLE, type HeroDef, type MobKind } from './Data';
 import { FloatingText, Particles, Projectiles, type Projectile } from './Effects';
 import { Mob } from './Mobs';
 import { Player } from './Player';
 import { World } from './World';
 
-const SUN_DIR = new THREE.Vector3(0.55, 0.62, 0.4).normalize();
-const SKY_ZENITH = new THREE.Color(0x3b6fb6);
-const SKY_HORIZON = new THREE.Color(0xf0b070);
-const FOG_COLOR = new THREE.Color(0xe2b58a);
+const SUN_DIR = new THREE.Vector3(0.48, 0.72, 0.38).normalize();
+const SKY_ZENITH = new THREE.Color(0x4a86c8);
+const SKY_HORIZON = new THREE.Color(0xf3c38a);
+const FOG_COLOR = new THREE.Color(0xd9b48a);
 
 type Phase = 'menu' | 'playing' | 'dead' | 'victory';
+
+interface NpcActor {
+  id: 'banhos' | 'almeida' | 'anderson';
+  used: number;
+  model: ReturnType<typeof makePerson>;
+}
 
 export class Game {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly world = new World();
+  quality: 'high' | 'medium' = 'high';
 
   private sun!: THREE.DirectionalLight;
   private sky!: THREE.Mesh;
-  private clouds: THREE.Mesh[] = [];
+  private clouds: THREE.Group[] = [];
   private beam!: THREE.Mesh;
   private beamLight!: THREE.PointLight;
+  private composer!: EffectComposer;
+  private bloom!: UnrealBloomPass;
+  private ssao: SSAOPass | null = null;
 
   private particles = new Particles(this.world);
   private projectiles = new Projectiles(this.world);
@@ -32,93 +49,137 @@ export class Game {
 
   player: Player | null = null;
   hero: HeroDef | null = null;
-  private mobs: Mob[] = [];
-  private elio: Mob | null = null;
-  private boss: Mob | null = null;
+  mobs: Mob[] = [];
+  helio: Mob | null = null;
+  elio: Mob | null = null;
+  boss: Mob | null = null;
+  private npcs: NpcActor[] = [];
 
   phase: Phase = 'menu';
-  private locked = false;
+  locked = false;
   private timer = new THREE.Timer();
   private time = 0;
   private playTime = 0;
 
-  // stats do jogador
   hp = 100;
   maxHp = 100;
   xp = 0;
   level = 1;
   kills = 0;
-  private specialCd = 0;
-  private healCd = 0;
+  coins = 0;
+  cookies = 0;
+  xpGain = 1;
+  upgrades = 0;
+  private cds = [0, 0, 0];
   private attackCd = 0;
+  private buffT = 0;
+  private regenT = 0;
   private stepT = 0;
   private shake = 0;
-  private objective = 0;
+  objective = 0;
   private objectiveT = 0;
-  private bossPhaseFlags = { loop: false, popcorn: false, elioRage: false };
+  private bossPhaseFlags = { loop: false, popcorn: false, helioRage: false };
   private spawnT = 0;
   private lastHp = -1;
   private lastXp = -1;
   private worldReady = false;
+  curriculum = false;
 
   constructor(
     private hud: Hud,
     container: HTMLElement,
   ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.05;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
 
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 700);
+    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.08, 420);
     this.scene.add(this.camera);
-    this.scene.fog = new THREE.Fog(FOG_COLOR, 70, 190);
+    this.scene.fog = new THREE.Fog(FOG_COLOR, 48, 160);
     this.scene.background = FOG_COLOR;
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
 
     this.setupLights();
     this.setupSky();
+    this.setupComposer();
     this.scene.add(this.world.group, this.particles.group, this.projectiles.group, this.texts.group);
     this.bindEvents();
 
-    window.addEventListener('resize', () => {
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
+    window.addEventListener('resize', () => this.onResize());
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
-  // ------------------------------------------------------------ setup
+  private onResize(): void {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.bloom.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  setQuality(q: 'high' | 'medium'): void {
+    this.quality = q;
+    const high = q === 'high';
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, high ? 1.5 : 1));
+    this.sun.shadow.mapSize.set(high ? 2048 : 1024, high ? 2048 : 1024);
+    this.bloom.strength = high ? 0.2 : 0.12;
+    if (this.ssao) this.ssao.enabled = high;
+    this.hud.toast(high ? 'Qualidade: Alta' : 'Qualidade: Média');
+  }
+
+  private setupComposer(): void {
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    try {
+      this.ssao = new SSAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+      this.ssao.kernelRadius = 8;
+      this.ssao.minDistance = 0.001;
+      this.ssao.maxDistance = 0.08;
+      this.composer.addPass(this.ssao);
+    } catch {
+      this.ssao = null;
+    }
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.18, 0.4, 0.92);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
+  }
 
   private setupLights(): void {
-    const hemi = new THREE.HemisphereLight(0x9ec4f0, 0x7a5a3a, 1.25);
-    this.scene.add(hemi);
-
-    this.sun = new THREE.DirectionalLight(0xffd6a6, 2.6);
+    this.scene.add(new THREE.HemisphereLight(0xb7d4f5, 0x6b4a2b, 0.9));
+    this.sun = new THREE.DirectionalLight(0xffe1b0, 3.1);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
-    const s = 48;
+    const s = 42;
     this.sun.shadow.camera.left = -s;
     this.sun.shadow.camera.right = s;
     this.sun.shadow.camera.top = s;
     this.sun.shadow.camera.bottom = -s;
-    this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 260;
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.03;
+    this.sun.shadow.camera.near = 2;
+    this.sun.shadow.camera.far = 220;
+    this.sun.shadow.bias = -0.00035;
+    this.sun.shadow.normalBias = 0.04;
     this.scene.add(this.sun, this.sun.target);
 
-    // Feixe de luz do objetivo
-    const beamGeo = new THREE.CylinderGeometry(0.22, 0.4, 90, 8, 1, true);
-    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd54f, transparent: true, opacity: 0.4, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+    const beamGeo = new THREE.CylinderGeometry(0.18, 0.55, 70, 12, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0xffe082,
+      transparent: true,
+      opacity: 0.28,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+    });
     this.beam = new THREE.Mesh(beamGeo, beamMat);
-    this.beamLight = new THREE.PointLight(0xffd54f, 8, 14, 1.8);
+    this.beamLight = new THREE.PointLight(0xffd54f, 10, 16, 1.7);
     this.scene.add(this.beam, this.beamLight);
   }
 
@@ -127,48 +188,37 @@ export class Game {
       uniforms: {
         zenith: { value: SKY_ZENITH },
         horizon: { value: SKY_HORIZON },
-        ground: { value: FOG_COLOR.clone().multiplyScalar(0.8) },
+        ground: { value: FOG_COLOR.clone().multiplyScalar(0.75) },
         sunDir: { value: SUN_DIR },
-        sunColor: { value: new THREE.Color(0xfff1c0) },
+        sunColor: { value: new THREE.Color(0xfff3c4) },
       },
-      vertexShader: `
-        varying vec3 vDir;
-        void main() {
-          vDir = normalize(position);
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_Position = projectionMatrix * mv;
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 zenith; uniform vec3 horizon; uniform vec3 ground; uniform vec3 sunDir; uniform vec3 sunColor;
-        varying vec3 vDir;
-        void main() {
-          vec3 d = normalize(vDir);
-          float h = d.y;
-          vec3 col = h >= 0.0 ? mix(horizon, zenith, pow(h, 0.55)) : mix(horizon, ground, clamp(-h * 6.0, 0.0, 1.0));
-          float s = max(dot(d, sunDir), 0.0);
-          col += sunColor * (pow(s, 900.0) * 3.0 + pow(s, 12.0) * 0.35 + pow(s, 3.0) * 0.08);
-          gl_FragColor = vec4(col, 1.0);
-        }
-      `,
+      vertexShader: `varying vec3 vDir; void main(){ vDir=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `uniform vec3 zenith,horizon,ground,sunDir,sunColor; varying vec3 vDir;
+        void main(){ vec3 d=normalize(vDir); float h=d.y;
+          vec3 col=h>=0.0?mix(horizon,zenith,pow(h,0.5)):mix(horizon,ground,clamp(-h*5.0,0.0,1.0));
+          float s=max(dot(d,sunDir),0.0);
+          col+=sunColor*(pow(s,700.0)*4.0+pow(s,10.0)*0.45+pow(s,2.0)*0.12);
+          gl_FragColor=vec4(col,1.0); }`,
       side: THREE.BackSide,
       depthWrite: false,
       fog: false,
     });
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(500, 24, 12), mat);
-    this.sky.renderOrder = -1;
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(380, 24, 16), mat);
     this.scene.add(this.sky);
 
-    // Nuvens em blocos
-    const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
-    for (let i = 0; i < 26; i++) {
-      const w = 6 + Math.random() * 14;
-      const d = 5 + Math.random() * 10;
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 1.2, d), cloudMat);
-      m.position.set(Math.random() * this.world.sizeX * 1.4 - this.world.sizeX * 0.2, 46 + Math.random() * 6, Math.random() * this.world.sizeZ * 1.4 - this.world.sizeZ * 0.2);
-      m.castShadow = true;
-      this.clouds.push(m);
-      this.scene.add(m);
+    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xfff7ee, roughness: 1, transparent: true, opacity: 0.88 });
+    for (let i = 0; i < 18; i++) {
+      const g = new THREE.Group();
+      for (let j = 0; j < 4; j++) {
+        const s = new THREE.Mesh(new THREE.SphereGeometry(2.2 + Math.random() * 2.4, 10, 8), cloudMat);
+        s.position.set((Math.random() - 0.5) * 8, Math.random() * 1.2, (Math.random() - 0.5) * 5);
+        s.scale.y = 0.45;
+        s.castShadow = true;
+        g.add(s);
+      }
+      g.position.set(Math.random() * 200 - 20, 38 + Math.random() * 8, Math.random() * 200 - 20);
+      this.clouds.push(g);
+      this.scene.add(g);
     }
   }
 
@@ -178,17 +228,12 @@ export class Game {
     await tick();
     this.world.generate((p) => this.hud.setLoading(p));
     await tick();
-    this.world.buildAll((p) => this.hud.setLoading(p));
-    await tick();
     this.worldReady = true;
     this.hud.setLoading(null);
-    // câmera de menu: vista do acampamento
     const s = this.world.spawn;
-    this.camera.position.set(s.x - 14, s.y + 9, s.z + 16);
-    this.camera.lookAt(s.x + 10, s.y, s.z - 4);
+    this.camera.position.set(s.x - 10, s.y + 6, s.z + 12);
+    this.camera.lookAt(s.x, s.y + 1, s.z);
   }
-
-  // ------------------------------------------------------------ eventos
 
   private bindEvents(): void {
     const canvas = this.renderer.domElement;
@@ -205,20 +250,20 @@ export class Game {
     document.addEventListener('mousedown', (e) => {
       if (!this.locked || this.phase !== 'playing') return;
       if (e.button === 0) this.attack();
-      else if (e.button === 2) this.special();
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('keydown', (e) => {
       if (this.phase !== 'playing' || !this.player) return;
-      if (e.code === 'F5') {
-        e.preventDefault();
-        this.player.thirdPerson = !this.player.thirdPerson;
-        this.hud.toast(this.player.thirdPerson ? 'Câmera: 3ª pessoa' : 'Câmera: 1ª pessoa');
+      if (e.code === 'KeyM') {
+        this.hud.toast(Sfx.toggleMute() ? 'Som desligado' : 'Som ligado');
         return;
       }
       if (!this.locked) return;
-      if (e.code === 'KeyQ') this.heal();
-      if (e.code === 'KeyM') this.hud.toast(Sfx.toggleMute() ? 'Som desligado' : 'Som ligado');
+      if (e.code === 'Digit1' || e.code === 'Numpad1') this.cast(0);
+      if (e.code === 'Digit2' || e.code === 'Numpad2') this.cast(1);
+      if (e.code === 'Digit3' || e.code === 'Numpad3') this.cast(2);
+      if (e.code === 'KeyE') this.interact();
+      if (e.code === 'KeyC') this.eatCookie();
       if (e.code === 'Space') e.preventDefault();
       this.player.keys.add(e.code);
     });
@@ -236,8 +281,6 @@ export class Game {
     }
   }
 
-  // ------------------------------------------------------------ fluxo
-
   start(hero: HeroDef): void {
     if (!this.worldReady) return;
     this.reset();
@@ -247,49 +290,48 @@ export class Game {
     const s = this.world.spawn;
     this.player.teleport(s.x + 0.5, s.y, s.z + 0.5);
     this.player.yaw = Math.atan2(-(this.world.tower.x - s.x), -(this.world.tower.z - s.z));
-    this.player.pitch = -0.05;
-
     this.level = 1;
     this.xp = 0;
     this.kills = 0;
+    this.coins = 0;
+    this.cookies = 0;
+    this.xpGain = 1;
+    this.upgrades = 0;
+    this.curriculum = false;
     this.applyLevelStats();
     this.hp = this.maxHp;
     this.hud.setHero(hero);
     this.hud.setKills(0);
+    this.hud.setCoins(0);
+    this.hud.setCookies(0);
     this.hud.setHudVisible(true);
     this.hud.showScreen(null);
-
     this.spawnBosses();
+    this.spawnNpcs();
     this.setObjective(0);
     this.phase = 'playing';
     this.playTime = 0;
     Sfx.playMusic('map');
-    this.hud.toast(`Bem-vindo, ${hero.name}! Siga o feixe de luz.`, true);
+    this.hud.toast(`Bem-vindo, ${hero.name}! Siga a luz dourada — e fale com o pessoal do acampamento.`, true);
     this.requestLock();
   }
 
   private reset(): void {
     for (const m of this.mobs) this.scene.remove(m.group);
     this.mobs = [];
-    this.elio = null;
-    this.boss = null;
+    this.helio = this.elio = this.boss = null;
+    for (const n of this.npcs) this.scene.remove(n.model.group);
+    this.npcs = [];
     if (this.player) {
       this.scene.remove(this.player.model.group);
-      this.camera.remove(this.player.viewModel);
       this.player = null;
     }
     for (const p of [...this.projectiles.list]) this.projectiles.remove(p);
-    this.bossPhaseFlags = { loop: false, popcorn: false, elioRage: false };
-    this.specialCd = 0;
-    this.healCd = 0;
-    this.lastHp = -1;
-    this.lastXp = -1;
+    this.bossPhaseFlags = { loop: false, popcorn: false, helioRage: false };
+    this.cds = [0, 0, 0];
+    this.lastHp = this.lastXp = -1;
     this.hud.setBoss(null);
-    // Reconstrói o portão, se já tiver sido aberto
-    if (this.world.get(this.world.gateBlocks[0][0], this.world.gateBlocks[0][1], this.world.gateBlocks[0][2]) === 0) {
-      for (const [x, y, z] of this.world.gateBlocks) this.world.set(x, y, z, 10, true);
-      this.world.rebuildDirty();
-    }
+    this.world.resetGate();
   }
 
   quitToTitle(): void {
@@ -300,8 +342,8 @@ export class Game {
     Sfx.playMusic('title');
     if (document.pointerLockElement) document.exitPointerLock();
     const s = this.world.spawn;
-    this.camera.position.set(s.x - 14, s.y + 9, s.z + 16);
-    this.camera.lookAt(s.x + 10, s.y, s.z - 4);
+    this.camera.position.set(s.x - 10, s.y + 6, s.z + 12);
+    this.camera.lookAt(s.x, s.y + 1, s.z);
   }
 
   respawn(): void {
@@ -309,9 +351,8 @@ export class Game {
     const s = this.world.spawn;
     this.player.teleport(s.x + 0.5, s.y, s.z + 0.5);
     this.hp = this.maxHp;
-    // remove mobs comuns próximos e recua bosses
     for (const m of [...this.mobs]) if (!m.isBoss) this.removeMob(m);
-    for (const b of [this.elio, this.boss]) {
+    for (const b of [this.helio, this.boss]) {
       if (b && !b.dead) {
         b.pos.copy(b.home);
         b.state = 'idle';
@@ -324,25 +365,36 @@ export class Game {
     this.requestLock();
   }
 
+  private spawnNpcs(): void {
+    const map = { banhos: LOOKS.banhos, almeida: LOOKS.almeida, anderson: LOOKS.anderson } as const;
+    for (const def of NPCS) {
+      const spot = this.world.npcSpots[def.id];
+      const model = makePerson(map[def.id]);
+      model.group.position.set(spot.x, this.world.heightAt(spot.x, spot.z), spot.z);
+      model.group.rotation.y = Math.random() * Math.PI * 2;
+      this.scene.add(model.group);
+      this.npcs.push({ id: def.id, used: 0, model });
+    }
+  }
+
   private spawnBosses(): void {
     const t = this.world.tower;
-    const ex = t.x - 8;
+    const ex = t.x - 7;
     const ez = t.z + 0.5;
-    this.elio = new Mob('elio', ex, this.world.surfaceY(ex, ez), ez);
-    this.elio.leash = 26;
-    this.elio.yaw = Math.PI * -0.5;
-    this.addMob(this.elio);
-
+    this.helio = new Mob('helio', ex, this.world.surfaceY(ex, ez), ez);
+    this.elio = this.helio;
+    this.helio.leash = 28;
+    this.helio.yaw = -Math.PI / 2;
+    this.addMob(this.helio);
     const th = this.world.throne;
-    const bx = th.x - 4;
-    const bz = th.z + 0.5;
+    const bx = th.x - 3;
+    const bz = th.z;
     this.boss = new Mob('boss', bx, this.world.surfaceY(bx, bz), bz);
-    this.boss.leash = 0;
     this.boss.yaw = -Math.PI / 2;
     this.addMob(this.boss);
   }
 
-  private addMob(m: Mob): void {
+  addMob(m: Mob): void {
     this.mobs.push(m);
     this.scene.add(m.group);
   }
@@ -358,21 +410,19 @@ export class Game {
     const beamMat = this.beam.material as THREE.MeshBasicMaterial;
     if (stage === 0) {
       const t = this.world.tower;
-      this.beam.position.set(t.x - 8, t.y + 45, t.z);
-      this.beamLight.position.set(t.x - 8, t.y + 3, t.z);
-      beamMat.color.setHex(0xffd54f);
+      this.beam.position.set(t.x - 7, t.y + 36, t.z);
+      this.beamLight.position.set(t.x - 7, t.y + 3, t.z);
+      beamMat.color.setHex(0xffe082);
       this.beamLight.color.setHex(0xffd54f);
-      this.beam.visible = true;
-      this.beamLight.visible = true;
+      this.beam.visible = this.beamLight.visible = true;
     } else if (stage === 1) {
       const g = this.world.castleGate;
-      this.beam.position.set(g.x - 2, g.y + 45, g.z);
+      this.beam.position.set(g.x - 2, g.y + 36, g.z);
       this.beamLight.position.set(g.x - 2, g.y + 3, g.z);
-      beamMat.color.setHex(0xff3d5a);
+      beamMat.color.setHex(0xff5c6c);
       this.beamLight.color.setHex(0xff3d5a);
     } else {
-      this.beam.visible = false;
-      this.beamLight.visible = false;
+      this.beam.visible = this.beamLight.visible = false;
     }
     this.updateObjectiveText();
   }
@@ -382,18 +432,14 @@ export class Game {
     const p = this.player.pos;
     if (this.objective === 0) {
       const t = this.world.tower;
-      const d = Math.round(Math.hypot(t.x - 8 - p.x, t.z - p.z));
-      this.hud.setObjective(`Derrote Élio, o Fiel Escudeiro, na Torre (feixe dourado) — ${d}m. Elimine mobs pelo caminho para subir de nível.`);
+      const d = Math.round(Math.hypot(t.x - 7 - p.x, t.z - p.z));
+      this.hud.setObjective(`Derrote HELIO, o goblin capanga, na torre (luz dourada) — ${d}m. Fale com Banhos, Almeida e Anderson no acampamento.`);
     } else if (this.objective === 1) {
       const g = this.world.castleGate;
       const d = Math.round(Math.hypot(g.x - p.x, g.z - p.z));
-      this.hud.setObjective(`O portão do castelo se abriu! Entre (feixe vermelho) — ${d}m — e destrua o REAL OFICIAL.`);
-    } else {
-      this.hud.setObjective('O REAL OFICIAL foi destruído. A internet está salva!');
-    }
+      this.hud.setObjective(`O portão se abriu. Entre no castelo (luz vermelha) — ${d}m — e destrua o REAL OFICIAL.`);
+    } else this.hud.setObjective('O REAL OFICIAL caiu. A internet está salva.');
   }
-
-  // ------------------------------------------------------------ stats
 
   private applyLevelStats(): void {
     if (!this.hero) return;
@@ -401,12 +447,12 @@ export class Game {
   }
 
   private get damage(): number {
-    if (!this.hero) return 0;
-    return this.hero.damage * (1 + 0.08 * (this.level - 1));
+    if (!this.hero || !this.player) return 0;
+    return this.hero.damage * (1 + 0.08 * (this.level - 1)) * (1 + this.upgrades * 0.08) * this.player.dmgMul;
   }
 
   private gainXp(amount: number): void {
-    this.xp += amount;
+    this.xp += Math.round(amount * this.xpGain);
     const newLevel = levelForXp(this.xp);
     if (newLevel > this.level) {
       this.level = newLevel;
@@ -414,21 +460,100 @@ export class Game {
       this.hp = this.maxHp;
       Sfx.levelUp();
       this.hud.toast(`NÍVEL ${this.level}!`, true);
-      if (this.player) this.particles.ring(this.player.pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 0x66bb6a, 2.5);
+      if (this.player) this.particles.ring(this.player.pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 0x66bb6a, 2.4);
     }
   }
-
-  // ------------------------------------------------------------ ações
 
   private attack(): void {
     if (!this.player || this.attackCd > 0 || !this.hero) return;
     if (!this.player.swing()) return;
     this.attackCd = this.hero.attackCooldown;
-    const hit = this.meleeHit(3.2, 0.55, this.damage, 6, true);
-    if (!hit) Sfx.miss();
+    if (!this.meleeHit(3.4, 0.42, this.damage, 7, true)) Sfx.miss();
   }
 
-  /** Acerta o mob mais próximo no cone. Retorna true se acertou. */
+  special(): void {
+    this.cast(0);
+  }
+
+  cast(i: number): void {
+    if (!this.player || !this.hero || this.cds[i] > 0) return;
+    const sk = this.hero.skills[i];
+    const origin = this.player.pos.clone().add(new THREE.Vector3(0, 0.4, 0));
+    let ok = true;
+    if (sk.kind === 'tweet') {
+      this.particles.ring(origin, 0x4fc3f7, 5.2, 28);
+      Sfx.magic();
+      for (const m of [...this.mobs]) if (!m.dead && m.pos.distanceTo(this.player.pos) < 6) this.hurtMob(m, this.damage * 1.7, 8, true);
+      this.texts.say(this.player.eyePos, 'isso vai viralizar', '#4fc3f7');
+    } else if (sk.kind === 'heal') {
+      if (this.hp >= this.maxHp) {
+        this.hud.toast('HP já está cheio.');
+        return;
+      }
+      const amount = Math.round(this.maxHp * 0.38);
+      this.hp = Math.min(this.maxHp, this.hp + amount);
+      Sfx.heal();
+      this.texts.heal(this.player.eyePos, amount);
+      this.particles.burst(origin.clone().add(new THREE.Vector3(0, 1, 0)), 0x66bb6a, 18, 2.4, 0.1, 0.9, 2);
+    } else if (sk.kind === 'taunt') {
+      const t = this.nearestEnemy(8);
+      if (!t) {
+        this.hud.toast('Ninguém perto pra lembrar do começo.');
+        return;
+      }
+      t.stunned = 2.4;
+      t.weak = 6;
+      t.takeDamage(Math.round(this.damage * 0.6), this.player.pos, 2);
+      this.texts.say(t.center.add(new THREE.Vector3(0, 1.1, 0)), 'isso lembra o meu começo', '#ffd54f');
+      this.hud.toast('Lembrar do começo: o alvo ficou ofendido e fraco.', true);
+      Sfx.stun();
+    } else if (sk.kind === 'buff') {
+      this.player.dmgMul = 1.45;
+      this.player.speedMul = 1.28;
+      this.buffT = 8;
+      this.particles.ring(origin, 0xef5350, 2.2, 18);
+      Sfx.buff();
+      this.hud.toast('Treino: pump ativado!');
+    } else if (sk.kind === 'diet') {
+      const amount = Math.round(this.maxHp * 0.32);
+      this.hp = Math.min(this.maxHp, this.hp + amount);
+      this.regenT = 6;
+      Sfx.heal();
+      this.texts.heal(this.player.eyePos, amount);
+      this.hud.toast('Dieta: recuperação + regeneração');
+    } else if (sk.kind === 'reel') {
+      this.particles.ring(origin, 0xff3d7a, 5, 36);
+      this.particles.burst(origin, 0xff8a80, 22, 5, 0.16, 0.7);
+      this.shake = 0.38;
+      Sfx.bossRoar();
+      for (const m of [...this.mobs]) if (!m.dead && m.pos.distanceTo(this.player.pos) < 5.4) this.hurtMob(m, this.damage * 2.1, 14, true);
+    }
+    if (ok) {
+      this.cds[i] = sk.cooldown;
+      if (sk.kind !== 'heal' && sk.kind !== 'diet' && sk.kind !== 'buff' && sk.kind !== 'taunt') this.hud.toast(sk.name);
+    }
+  }
+
+  private nearestEnemy(range: number): Mob | null {
+    if (!this.player) return null;
+    let best: Mob | null = null;
+    let bd = range;
+    const fwd = this.player.forwardFlat;
+    for (const m of this.mobs) {
+      if (m.dead) continue;
+      const to = m.pos.clone().sub(this.player.pos);
+      to.y = 0;
+      const d = to.length();
+      if (d > range) continue;
+      if (d > 1.2 && to.normalize().dot(fwd) < 0.15) continue;
+      if (d < bd) {
+        bd = d;
+        best = m;
+      }
+    }
+    return best;
+  }
+
   private meleeHit(range: number, minDot: number, dmg: number, knock: number, single: boolean, crit = false): boolean {
     if (!this.player) return false;
     const eye = this.player.eyePos;
@@ -436,28 +561,25 @@ export class Game {
     const candidates: { m: Mob; d: number }[] = [];
     for (const m of this.mobs) {
       if (m.dead) continue;
-      const c = m.center;
-      const to = c.clone().sub(eye);
+      const to = m.center.clone().sub(eye);
       const d = to.length() - m.radius;
       if (d > range) continue;
       to.normalize();
-      if (to.dot(fwd) < minDot && d > 0.8) continue;
+      if (to.dot(fwd) < minDot && d > 0.9) continue;
       candidates.push({ m, d });
     }
-    if (candidates.length === 0) return false;
+    if (!candidates.length) return false;
     candidates.sort((a, b) => a.d - b.d);
-    const targets = single ? [candidates[0]] : candidates;
-    for (const { m } of targets) this.hurtMob(m, dmg, knock, crit);
+    for (const { m } of single ? [candidates[0]] : candidates) this.hurtMob(m, dmg, knock, crit);
     return true;
   }
 
-  private hurtMob(m: Mob, dmg: number, knock: number, crit = false): void {
+  hurtMob(m: Mob, dmg: number, knock: number, crit = false): void {
     if (!this.player || m.dead) return;
-    const variance = 0.85 + Math.random() * 0.3;
-    const amount = Math.round(dmg * variance);
+    const amount = Math.round(dmg * (0.85 + Math.random() * 0.3));
     m.takeDamage(amount, this.player.pos, knock);
     this.texts.damage(m.center, amount, crit);
-    this.particles.burst(m.center, crit ? 0xffd54f : 0xffffff, crit ? 14 : 6, 3, 0.1, 0.5);
+    this.particles.burst(m.center, crit ? 0xffd54f : 0xffffff, crit ? 14 : 7, 3, 0.08, 0.5);
     crit ? Sfx.crit() : Sfx.hit();
     if (m.state === 'idle' || m.state === 'wander') {
       m.state = 'chase';
@@ -466,66 +588,80 @@ export class Game {
     if (m.dead) this.killMob(m);
   }
 
-  private special(): void {
-    if (!this.player || !this.hero || this.specialCd > 0) return;
-    const sp = this.hero.special;
-    const origin = this.player.pos.clone().add(new THREE.Vector3(0, 0.3, 0));
-    let did = false;
-    if (sp.kind === 'burst') {
-      did = true;
-      this.particles.ring(origin, 0x4fc3f7, 5.5, 32);
-      Sfx.magic();
-      for (const m of [...this.mobs]) if (!m.dead && m.pos.distanceTo(this.player.pos) < 5.5 + m.radius) this.hurtMob(m, this.damage * 2, 9, true);
-    } else if (sp.kind === 'heavy') {
-      did = this.meleeHit(4.2, 0.4, this.damage * 3, 14, true, true);
-      if (!did) {
-        this.hud.toast('Nenhum alvo à frente!');
-        return;
-      }
-      this.player.swing();
-      this.shake = 0.25;
-    } else if (sp.kind === 'slam') {
-      did = true;
-      this.particles.ring(origin, 0xef5350, 4.5, 32);
-      this.particles.burst(origin, 0x8a5a33, 20, 5, 0.18, 0.7);
-      this.shake = 0.4;
-      Sfx.bossRoar();
-      for (const m of [...this.mobs]) if (!m.dead && m.pos.distanceTo(this.player.pos) < 4.8 + m.radius) this.hurtMob(m, this.damage * 2, 16, true);
-    }
-    if (did) {
-      this.specialCd = sp.cooldown;
-      this.hud.toast(sp.name);
-    }
-  }
-
-  private heal(): void {
-    if (!this.player || !this.hero || this.healCd > 0) return;
-    if (this.hp >= this.maxHp) {
-      this.hud.toast('HP já está cheio.');
+  private eatCookie(): void {
+    if (this.cookies <= 0) {
+      this.hud.toast('Sem cookies. Fale com o Banhos.');
       return;
     }
-    const amount = Math.round(this.maxHp * this.hero.heal.percent);
+    if (this.hp >= this.maxHp) {
+      this.hud.toast('HP cheio.');
+      return;
+    }
+    this.cookies--;
+    const amount = Math.round(this.maxHp * 0.22);
     this.hp = Math.min(this.maxHp, this.hp + amount);
-    this.healCd = this.hero.heal.cooldown;
+    this.hud.setCookies(this.cookies);
     Sfx.heal();
-    this.texts.heal(this.player.eyePos.add(new THREE.Vector3(0, 0.3, 0)), amount);
-    this.particles.burst(this.player.pos.clone().add(new THREE.Vector3(0, 1, 0)), 0x66bb6a, 16, 2.5, 0.12, 0.9, 2);
-    this.hud.toast(`${this.hero.heal.name}: +${amount} HP`);
+    this.texts.heal(this.player!.eyePos, amount);
+    this.hud.toast('Cookie do Banhos: +HP');
   }
 
-  private damagePlayer(amount: number, from: THREE.Vector3 | null): void {
+  interact(): void {
+    if (!this.player) return;
+    let best: NpcActor | null = null;
+    let bd = 2.6;
+    for (const n of this.npcs) {
+      const d = n.model.group.position.distanceTo(this.player.pos);
+      if (d < bd) {
+        bd = d;
+        best = n;
+      }
+    }
+    if (!best) return;
+    const def = NPCS.find((n) => n.id === best!.id)!;
+    if (best.id === 'banhos') {
+      this.cookies += 3;
+      this.hud.setCookies(this.cookies);
+      if (!this.curriculum) {
+        this.curriculum = true;
+        this.xpGain = 1.25;
+        this.gainXp(40);
+        this.hud.toast('Currículo turbo: +25% XP. Cookies na mochila (C).', true);
+      } else this.hud.toast('Mais cookies! Aperte C para comer.');
+      Sfx.coin();
+    } else if (best.id === 'almeida') {
+      const cost = 30 + this.upgrades * 15;
+      if (this.upgrades >= 4) this.hud.toast('Arma no talo. Tá lindo.');
+      else if (this.coins < cost) this.hud.toast(`Almeida: preciso de ${cost} moedas. Você tem ${this.coins}.`);
+      else {
+        this.coins -= cost;
+        this.upgrades++;
+        this.hud.setCoins(this.coins);
+        Sfx.buff();
+        this.hud.toast(`Upgrade ${this.upgrades}/4: arma mais forte.`, true);
+      }
+    } else {
+      this.hp = this.maxHp;
+      this.cds = [0, 0, 0];
+      Sfx.heal();
+      this.hud.toast('Hotfix do Anderson: HP cheio e skills prontas.', true);
+    }
+    this.texts.say(best.model.group.position.clone().add(new THREE.Vector3(0, 2.1, 0)), def.greet.split('!')[0] + '!', '#cfe8ff');
+  }
+
+  damagePlayer(amount: number, from: THREE.Vector3 | null): void {
     if (!this.player || !this.hero || this.phase !== 'playing') return;
     const dmg = Math.max(1, Math.round(amount * (1 - this.hero.armor) * (0.9 + Math.random() * 0.2)));
     this.hp -= dmg;
     this.hud.hit();
-    this.shake = Math.max(this.shake, 0.18);
+    this.shake = Math.max(this.shake, 0.16);
     Sfx.hit();
     if (from) {
       const push = this.player.pos.clone().sub(from);
       push.y = 0;
-      push.normalize().multiplyScalar(4);
+      push.normalize().multiplyScalar(3.6);
       this.player.vel.add(push);
-      this.player.vel.y = Math.max(this.player.vel.y, 2.5);
+      this.player.vel.y = Math.max(this.player.vel.y, 2.2);
     }
     if (this.hp <= 0) this.die();
   }
@@ -535,36 +671,29 @@ export class Game {
     this.hp = 0;
     Sfx.stopMusic();
     Sfx.defeat();
-    const lines = [
-      'Você acorda no acampamento. O REAL OFICIAL ri com a boca cheia de pipoca.',
-      'Seu vídeo virou corte sem contexto. Mas heróis renascem.',
-      'GAME OVER? Nunca. Só um respawn.',
-    ];
-    this.hud.setDeadText(lines[Math.floor(Math.random() * lines.length)]);
+    this.hud.setDeadText('Você virou corte. Acorda no acampamento — Banhos ainda tem cookie.');
     setTimeout(() => {
       this.hud.showScreen('dead');
       if (document.pointerLockElement) document.exitPointerLock();
-    }, 900);
+    }, 800);
   }
 
   private killMob(m: Mob): void {
     this.removeMob(m);
     this.kills++;
+    this.coins += m.def.coins;
     this.hud.setKills(this.kills);
-    const color = m.def.kind === 'bug' ? 0x5da832 : m.def.kind === 'reuniao' ? 0xb388ff : m.def.kind === 'boss' ? 0xff3d5a : 0xffd54f;
-    this.particles.burst(m.center, color, m.isBoss ? 60 : 18, m.isBoss ? 7 : 4, m.isBoss ? 0.25 : 0.14, 1.2);
+    this.hud.setCoins(this.coins);
+    const color = m.def.kind === 'helio' ? 0x7cff4a : m.def.kind === 'boss' ? 0xff3d5a : 0xffd54f;
+    this.particles.burst(m.center, color, m.isBoss ? 55 : 16, m.isBoss ? 7 : 4, m.isBoss ? 0.2 : 0.1, 1.1);
     this.gainXp(m.def.xp);
     Sfx.coin();
-    if (m === this.elio) {
-      this.hud.toast('ÉLIO DERROTADO! O portão de ouro do castelo se abriu.', true);
+    if (m === this.helio) {
+      this.hud.toast('HELIO DERROTADO! O portão dourado se abre.', true);
       this.world.openGate();
       this.setObjective(1);
       Sfx.victory();
-    } else if (m === this.boss) {
-      this.win();
-    } else {
-      this.texts.say(m.center, m.def.kind === 'bug' ? 'bug corrigido!' : 'eliminado!', '#ffd54f');
-    }
+    } else if (m === this.boss) this.win();
   }
 
   private win(): void {
@@ -577,106 +706,100 @@ export class Game {
     const mins = Math.floor(this.playTime / 60);
     const secs = Math.floor(this.playTime % 60);
     this.hud.setVictoryText(
-      `${this.hero?.name} destruiu o REAL OFICIAL em ${mins}m${String(secs).padStart(2, '0')}s, com ${this.kills} mobs eliminados e nível ${this.level}. A pipoca esfriou. Os cortes acabaram. A Bolha Dev está livre.`,
+      `${this.hero?.name} derrubou o REAL OFICIAL em ${mins}m${String(secs).padStart(2, '0')}s · ${this.kills} inimigos · nível ${this.level}. A pipoca esfriou.`,
     );
     setTimeout(() => {
       Sfx.playMusic('victory');
       this.hud.showScreen('victory');
       if (document.pointerLockElement) document.exitPointerLock();
-    }, 2800);
+    }, 2600);
   }
 
   private mobSay(m: Mob): void {
     if (m.sayCd > 0) return;
     m.sayCd = 5 + Math.random() * 5;
     const line = m.def.lines[Math.floor(Math.random() * m.def.lines.length)];
-    const color = m.def.kind === 'boss' ? '#ff5c6c' : m.def.kind === 'elio' ? '#ffd54f' : '#e8e8ff';
-    this.texts.say(m.center.add(new THREE.Vector3(0, m.model.height * 0.6 + 0.3, 0)), line, color);
+    const color = m.def.kind === 'boss' ? '#ff5c6c' : m.def.kind === 'helio' ? '#9cff57' : '#e8e8ff';
+    this.texts.say(m.center.add(new THREE.Vector3(0, m.model.height * 0.55, 0)), line, color);
   }
-
-  // ------------------------------------------------------------ loop
 
   private frame(): void {
     this.timer.update();
     const dt = Math.min(0.05, this.timer.getDelta());
     this.time += dt;
     this.hud.update(dt);
-
     if (this.phase === 'menu') {
-      // câmera orbitando o acampamento
       if (this.worldReady) {
         const s = this.world.spawn;
-        const a = this.time * 0.08;
-        this.camera.position.set(s.x + Math.cos(a) * 22, s.y + 8 + Math.sin(this.time * 0.3) * 1.5, s.z + Math.sin(a) * 22);
-        this.camera.lookAt(s.x, s.y + 1, s.z);
+        const a = this.time * 0.07;
+        this.camera.position.set(s.x + Math.cos(a) * 16, s.y + 5.5, s.z + Math.sin(a) * 16);
+        this.camera.lookAt(s.x, s.y + 1.2, s.z);
       }
     } else if (this.player) {
-      const simulate = this.locked || this.phase !== 'playing';
-      if (simulate) this.update(dt);
-      else this.player.update(0, 1); // mantém a câmera no lugar
+      if (this.locked || this.phase !== 'playing') this.update(dt);
+      else this.player.update(0);
     }
-
     this.updateEnvironment(dt);
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   private updateEnvironment(dt: number): void {
     this.sky.position.copy(this.camera.position);
     for (const c of this.clouds) {
-      c.position.x += dt * 0.6;
-      if (c.position.x > this.world.sizeX * 1.2) c.position.x = -this.world.sizeX * 0.2;
+      c.position.x += dt * 0.7;
+      if (c.position.x > this.world.sizeX + 20) c.position.x = -20;
     }
     const focus = this.player ? this.player.pos : this.camera.position;
-    const tx = Math.round(focus.x);
-    const tz = Math.round(focus.z);
-    this.sun.target.position.set(tx, 12, tz);
-    this.sun.position.copy(this.sun.target.position).addScaledVector(SUN_DIR, 120);
-    this.beam.rotation.y += dt * 0.5;
-    // Esmaece o feixe quando o jogador se aproxima, para não ofuscar
+    this.sun.target.position.set(Math.round(focus.x), 10, Math.round(focus.z));
+    this.sun.position.copy(this.sun.target.position).addScaledVector(SUN_DIR, 90);
     const dBeam = Math.hypot(this.beam.position.x - focus.x, this.beam.position.z - focus.z);
-    const near = THREE.MathUtils.clamp((dBeam - 4) / 10, 0, 1);
-    (this.beam.material as THREE.MeshBasicMaterial).opacity = (0.3 + Math.sin(this.time * 3) * 0.08) * near;
+    const near = THREE.MathUtils.clamp((dBeam - 5) / 12, 0, 1);
+    (this.beam.material as THREE.MeshBasicMaterial).opacity = (0.22 + Math.sin(this.time * 2.5) * 0.06) * near;
     this.beamLight.intensity = 8 * near;
+    this.world.update(dt, this.time);
     this.particles.update(dt);
     this.texts.update(dt);
+    for (const n of this.npcs) n.model.animate(this.time, 0);
   }
 
   private update(dt: number): void {
     const player = this.player!;
     if (this.phase === 'playing') this.playTime += dt;
-
     this.attackCd = Math.max(0, this.attackCd - dt);
-    this.specialCd = Math.max(0, this.specialCd - dt);
-    this.healCd = Math.max(0, this.healCd - dt);
+    this.cds = this.cds.map((c) => Math.max(0, c - dt));
+    this.buffT = Math.max(0, this.buffT - dt);
+    this.regenT = Math.max(0, this.regenT - dt);
+    if (this.buffT <= 0) {
+      player.dmgMul = 1;
+      player.speedMul = 1;
+    }
+    if (this.regenT > 0) this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.04 * dt);
 
     const alive = this.phase === 'playing';
     if (!alive) player.keys.clear();
-    player.update(dt, 1);
+    player.update(dt);
 
-    // passos
     const speed = Math.hypot(player.vel.x, player.vel.z);
     if (player.onGround && speed > 1) {
       this.stepT += dt * speed;
-      if (this.stepT > 2.6) {
+      if (this.stepT > 2.8) {
         this.stepT = 0;
         Sfx.step();
       }
     }
-
-    // tremor de câmera
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt);
-      const k = this.shake * 0.25;
-      this.camera.position.add(new THREE.Vector3((Math.random() - 0.5) * k, (Math.random() - 0.5) * k, (Math.random() - 0.5) * k));
+      const k = this.shake * 0.22;
+      this.camera.position.add(new THREE.Vector3((Math.random() - 0.5) * k, (Math.random() - 0.5) * k, 0));
     }
 
     if (alive) {
       this.updateMobs(dt);
       this.updateSpawner(dt);
+      this.updatePrompt();
     }
     this.updateProjectiles(dt);
 
-    // HUD
     if (this.hp !== this.lastHp) {
       this.hud.setHealth(this.hp, this.maxHp);
       this.lastHp = this.hp;
@@ -687,15 +810,13 @@ export class Game {
       this.hud.setXp(this.xp, next, prev, this.level);
       this.lastXp = this.xp;
     }
-    if (this.hero) this.hud.setCooldowns(this.specialCd / this.hero.special.cooldown, this.healCd / this.hero.heal.cooldown);
+    if (this.hero) this.hud.setCooldowns(this.cds.map((c, i) => c / this.hero!.skills[i].cooldown) as [number, number, number]);
     this.objectiveT += dt;
-    if (this.objectiveT > 0.5) {
+    if (this.objectiveT > 0.45) {
       this.objectiveT = 0;
       this.updateObjectiveText();
     }
-
-    // barra do boss + música
-    const activeBoss = [this.boss, this.elio].find((b) => b && !b.dead && b.state === 'chase');
+    const activeBoss = [this.boss, this.helio].find((b) => b && !b.dead && b.state === 'chase');
     if (activeBoss) {
       this.hud.setBoss(activeBoss.def.name, activeBoss.hp / activeBoss.maxHp);
       if (alive) Sfx.playMusic('boss');
@@ -703,6 +824,19 @@ export class Game {
       this.hud.setBoss(null);
       if (alive) Sfx.playMusic('map');
     }
+  }
+
+  private updatePrompt(): void {
+    if (!this.player) return;
+    let label = '';
+    for (const n of this.npcs) {
+      if (n.model.group.position.distanceTo(this.player.pos) < 2.6) {
+        const def = NPCS.find((d) => d.id === n.id)!;
+        label = `E — Falar com ${def.name}`;
+        break;
+      }
+    }
+    this.hud.setPrompt(label);
   }
 
   private updateMobs(dt: number): void {
@@ -713,14 +847,12 @@ export class Game {
       m.attackCd = Math.max(0, m.attackCd - dt);
       m.rangedCd = Math.max(0, m.rangedCd - dt);
       m.sayCd = Math.max(0, m.sayCd - dt);
+      m.stunned = Math.max(0, m.stunned - dt);
+      m.weak = Math.max(0, m.weak - dt);
       const dist = Math.hypot(ppos.x - m.pos.x, ppos.z - m.pos.z);
-      const flying = !!m.def.hover;
-
-      // Boss não sai do castelo; Élio não sai da torre
       let canChase = dist < m.def.aggroRange;
       if (m === this.boss && !this.world.insideCastle(ppos.x, ppos.z)) canChase = false;
       if (m.leash > 0 && m.home.distanceTo(ppos) > m.leash) canChase = false;
-
       if (canChase && m.state !== 'chase') {
         m.state = 'chase';
         this.mobSay(m);
@@ -728,17 +860,20 @@ export class Game {
           Sfx.bossRoar();
           this.hud.toast(m.def.name, true);
         }
-      } else if (!canChase && m.state === 'chase') {
-        m.state = m.isBoss ? 'return' : 'wander';
-      }
+      } else if (!canChase && m.state === 'chase') m.state = m.isBoss ? 'return' : 'wander';
 
-      // knockback
       if (m.knock.lengthSq() > 0.01) {
-        m.tryMove(this.world, m.knock.x * dt, m.knock.z * dt, flying);
+        m.tryMove(this.world, m.knock.x * dt, m.knock.z * dt);
         m.knock.multiplyScalar(Math.max(0, 1 - dt * 8));
       }
 
       m.moving = 0;
+      if (m.stunned > 0) {
+        m.updateVertical(this.world, dt);
+        m.syncTransform();
+        m.updateVisuals(dt);
+        continue;
+      }
       if (m.state === 'chase') {
         m.faceTowards(ppos, dt);
         const inMelee = dist < m.def.meleeRange + 0.2;
@@ -747,89 +882,74 @@ export class Game {
         if (wantsRanged && ranged) {
           m.rangedCd = ranged.cooldown * (m === this.boss && this.bossPhaseFlags.loop ? 0.65 : 1);
           m.attackAnim = 0;
-          this.fireAt(m, ranged.speed, ranged.damage, ranged.color, ranged.size, m === this.boss && this.bossPhaseFlags.loop ? 3 : m === this.elio && this.bossPhaseFlags.elioRage ? 3 : 1);
-          if (Math.random() < 0.35) this.texts.say(m.center.add(new THREE.Vector3(0, 1.2, 0)), ranged.name, '#ffffff');
+          this.fireAt(m, ranged.speed, ranged.damage, ranged.color, ranged.size, m === this.boss && this.bossPhaseFlags.loop ? 3 : m === this.helio && this.bossPhaseFlags.helioRage ? 3 : 1);
         } else if (inMelee) {
           if (m.attackCd <= 0) {
             m.attackCd = m.def.attackCooldown;
             m.attackAnim = 0;
+            const target = m;
             setTimeout(() => {
-              if (m.dead || this.phase !== 'playing') return;
-              const d = Math.hypot(this.player!.pos.x - m.pos.x, this.player!.pos.z - m.pos.z);
-              if (d < m.def.meleeRange + 0.6) this.damagePlayer(m.def.damage, m.pos);
+              if (target.dead || this.phase !== 'playing') return;
+              const d = Math.hypot(this.player!.pos.x - target.pos.x, this.player!.pos.z - target.pos.z);
+              if (d < target.def.meleeRange + 0.7) this.damagePlayer(target.def.damage, target.pos);
             }, 180);
           }
         } else {
-          const spd = m.def.speed * (m === this.boss && this.bossPhaseFlags.loop ? 1.3 : 1);
+          const spd = m.def.speed * (m === this.boss && this.bossPhaseFlags.loop ? 1.28 : 1);
           const dir = new THREE.Vector3(ppos.x - m.pos.x, 0, ppos.z - m.pos.z).normalize();
-          // separação entre mobs
           for (const o of this.mobs) {
             if (o === m || o.dead) continue;
             const dx = m.pos.x - o.pos.x;
             const dz = m.pos.z - o.pos.z;
             const dd = Math.hypot(dx, dz);
-            if (dd < 1.4 && dd > 0.001) dir.add(new THREE.Vector3(dx / dd, 0, dz / dd).multiplyScalar(0.6));
+            if (dd < 1.3 && dd > 0.001) dir.add(new THREE.Vector3(dx / dd, 0, dz / dd).multiplyScalar(0.55));
           }
           dir.normalize();
-          if (!m.tryMove(this.world, dir.x * spd * dt, dir.z * spd * dt, flying)) {
-            // tenta contornar
+          if (!m.tryMove(this.world, dir.x * spd * dt, dir.z * spd * dt)) {
             const side = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(Math.sin(m.animT * 2) > 0 ? 1 : -1);
-            m.tryMove(this.world, side.x * spd * dt, side.z * spd * dt, flying);
+            m.tryMove(this.world, side.x * spd * dt, side.z * spd * dt);
           }
           m.moving = 1;
         }
-        if (Math.random() < dt * 0.08) this.mobSay(m);
+        if (Math.random() < dt * 0.07) this.mobSay(m);
       } else if (m.state === 'return') {
         const toHome = m.home.clone().sub(m.pos);
         toHome.y = 0;
         if (toHome.length() > 0.8) {
           m.faceTowards(m.home, dt);
           toHome.normalize();
-          m.tryMove(this.world, toHome.x * m.def.speed * dt, toHome.z * m.def.speed * dt, flying);
+          m.tryMove(this.world, toHome.x * m.def.speed * dt, toHome.z * m.def.speed * dt);
           m.moving = 1;
         } else {
           m.state = 'idle';
           m.hp = Math.min(m.maxHp, m.hp + m.maxHp * dt * 0.1);
         }
-      } else {
-        // idle / wander
-        if (!m.isBoss) {
-          m.wanderT -= dt;
-          if (m.wanderT <= 0) {
-            m.wanderT = 2 + Math.random() * 3;
-            if (Math.random() < 0.6) {
-              const a = Math.random() * Math.PI * 2;
-              m.wanderDir.set(Math.cos(a), 0, Math.sin(a));
-              m.state = 'wander';
-            } else {
-              m.state = 'idle';
-            }
-          }
-          if (m.state === 'wander') {
-            m.faceTowards(m.pos.clone().add(m.wanderDir), dt);
-            if (!m.tryMove(this.world, m.wanderDir.x * m.def.speed * 0.4 * dt, m.wanderDir.z * m.def.speed * 0.4 * dt, flying)) m.wanderT = 0;
-            m.moving = 0.4;
-          }
-        } else {
-          // bosses respiram
-          if (m.hp < m.maxHp) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * dt * 0.05);
+      } else if (!m.isBoss) {
+        m.wanderT -= dt;
+        if (m.wanderT <= 0) {
+          m.wanderT = 2 + Math.random() * 3;
+          if (Math.random() < 0.6) {
+            const a = Math.random() * Math.PI * 2;
+            m.wanderDir.set(Math.cos(a), 0, Math.sin(a));
+            m.state = 'wander';
+          } else m.state = 'idle';
         }
-      }
+        if (m.state === 'wander') {
+          m.faceTowards(m.pos.clone().add(m.wanderDir), dt);
+          if (!m.tryMove(this.world, m.wanderDir.x * m.def.speed * 0.4 * dt, m.wanderDir.z * m.def.speed * 0.4 * dt)) m.wanderT = 0;
+          m.moving = 0.4;
+        }
+      } else if (m.hp < m.maxHp) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * dt * 0.04);
 
       m.updateVertical(this.world, dt);
       m.syncTransform();
       m.updateVisuals(dt);
-
-      // fases dos bosses
       if (m === this.boss) this.updateBossPhases(m);
-      if (m === this.elio && !this.bossPhaseFlags.elioRage && m.hp < m.maxHp * 0.5) {
-        this.bossPhaseFlags.elioRage = true;
-        this.hud.toast('Élio: "Cobrança em TRIPLO!"', true);
-        this.texts.say(m.center.add(new THREE.Vector3(0, 1.5, 0)), 'COBRANÇA TRIPLA!', '#ffd54f');
+      if (m === this.helio && !this.bossPhaseFlags.helioRage && m.hp < m.maxHp * 0.5) {
+        this.bossPhaseFlags.helioRage = true;
+        this.hud.toast('HELIO: "O chefe vai saber disso!"', true);
       }
-
-      // despawn de mobs muito longe
-      if (!m.isBoss && dist > 75) this.removeMob(m);
+      if (!m.isBoss && dist > 78) this.removeMob(m);
     }
   }
 
@@ -838,17 +958,15 @@ export class Game {
       this.bossPhaseFlags.loop = true;
       this.hud.toast('REAL OFICIAL: "LOOP INFINITO!"', true);
       Sfx.bossRoar();
-      this.shake = 0.5;
+      this.shake = 0.45;
       this.particles.ring(b.pos.clone(), 0xff3d5a, 6, 40);
-      // invoca bugs dentro do castelo
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * Math.PI * 2;
+      for (let i = 0; i < 2; i++) {
+        const a = (i / 2) * Math.PI * 2;
         const x = b.pos.x + Math.cos(a) * 4;
         const z = b.pos.z + Math.sin(a) * 4;
-        const bug = new Mob('bug', x, this.world.surfaceY(x, z), z, 1 + this.level * 0.15);
-        bug.state = 'chase';
-        this.addMob(bug);
-        this.particles.burst(bug.center, 0x5da832, 12, 3);
+        const minion = new Mob('deyvin', x, this.world.surfaceY(x, z), z, 1.1);
+        minion.state = 'chase';
+        this.addMob(minion);
       }
     }
     if (!this.bossPhaseFlags.popcorn && b.hp < b.maxHp * 0.3) {
@@ -857,24 +975,19 @@ export class Game {
       b.hp = Math.min(b.maxHp, b.hp + heal);
       this.hud.toast('REAL OFICIAL come pipoca e recupera fôlego!', true);
       this.texts.heal(b.center, heal);
-      this.particles.burst(b.center.add(new THREE.Vector3(0, 1, 0)), 0xfff7dc, 24, 3, 0.16, 1);
     }
   }
 
   private fireAt(m: Mob, speed: number, damage: number, color: number, size: number, count: number): void {
     const player = this.player!;
-    const origin = m.center.add(new THREE.Vector3(0, 0.3, 0));
-    const target = player.pos.clone().add(new THREE.Vector3(0, 1.0, 0));
-    // previsão simples
+    const origin = m.center.add(new THREE.Vector3(0, 0.25, 0));
+    const target = player.pos.clone().add(new THREE.Vector3(0, 1, 0));
     const dist = origin.distanceTo(target);
-    target.addScaledVector(player.vel, Math.min(0.6, dist / speed) * 0.7);
+    target.addScaledVector(player.vel, Math.min(0.55, dist / speed) * 0.65);
     const base = target.sub(origin).normalize();
     for (let i = 0; i < count; i++) {
       const dir = base.clone();
-      if (count > 1) {
-        const spread = (i - (count - 1) / 2) * 0.16;
-        dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
-      }
+      if (count > 1) dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), (i - (count - 1) / 2) * 0.16);
       this.projectiles.spawn(origin.clone().addScaledVector(dir, m.radius + 0.4), dir.multiplyScalar(speed), damage, color, size);
     }
     Sfx.magic();
@@ -883,15 +996,14 @@ export class Game {
   private updateProjectiles(dt: number): void {
     const player = this.player!;
     const alive = this.phase === 'playing';
-    this.projectiles.update(dt, (p: Projectile) => this.particles.burst(p.mesh.position, p.color, 6, 2, 0.08, 0.4));
+    this.projectiles.update(dt, (p: Projectile) => this.particles.burst(p.mesh.position, p.color, 6, 2, 0.07, 0.4));
     if (!alive) return;
     const center = player.pos.clone().add(new THREE.Vector3(0, 0.95, 0));
     for (const p of [...this.projectiles.list]) {
       if (p.fromPlayer) continue;
-      const d = p.mesh.position.distanceTo(center);
-      if (d < 0.95) {
+      if (p.mesh.position.distanceTo(center) < 0.9) {
         this.damagePlayer(p.damage, p.mesh.position);
-        this.particles.burst(p.mesh.position, p.color, 10, 3, 0.1, 0.5);
+        this.particles.burst(p.mesh.position, p.color, 10, 3, 0.09, 0.45);
         this.projectiles.remove(p);
       }
     }
@@ -901,24 +1013,21 @@ export class Game {
     const player = this.player!;
     this.spawnT -= dt;
     if (this.spawnT > 0) return;
-    this.spawnT = 2.2;
+    this.spawnT = 2.4;
     const common = this.mobs.filter((m) => !m.isBoss).length;
-    const cap = 12 + Math.min(6, this.level);
-    if (common >= cap) return;
-    // não spawna dentro do castelo, nem colado ao jogador
+    if (common >= 10 + Math.min(4, this.level)) return;
+    const kinds: MobKind[] = ['pedro', 'elon', 'deyvin'];
     for (let attempt = 0; attempt < 12; attempt++) {
       const a = Math.random() * Math.PI * 2;
-      const r = 18 + Math.random() * 20;
+      const r = 16 + Math.random() * 18;
       const x = player.pos.x + Math.cos(a) * r;
       const z = player.pos.z + Math.sin(a) * r;
-      if (x < 4 || z < 4 || x > this.world.sizeX - 4 || z > this.world.sizeZ - 4) continue;
+      if (x < 8 || z < 8 || x > this.world.sizeX - 8 || z > this.world.sizeZ - 8) continue;
       if (this.world.insideCastle(x, z)) continue;
-      const g = this.world.groundBlock(x, z);
-      if (g.block !== 1 && g.block !== 4 && g.block !== 18) continue; // grama, areia ou neve
-      if (this.world.isWaterAt(x, g.y + 1, z)) continue;
-      const roll = Math.random();
-      const kind: MobKind = roll < 0.48 ? 'bug' : roll < 0.78 ? 'cliente' : 'reuniao';
-      const mob = new Mob(kind, x + 0.5, g.y + 1, z + 0.5, 1 + (this.level - 1) * 0.12);
+      const h = this.world.heightAt(x, z);
+      if (h < this.world.waterLevel + 0.3) continue;
+      const kind = kinds[Math.floor(Math.random() * kinds.length)];
+      const mob = new Mob(kind, x, h, z, 1 + (this.level - 1) * 0.12);
       mob.yaw = Math.random() * Math.PI * 2;
       this.addMob(mob);
       break;

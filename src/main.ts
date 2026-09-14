@@ -46,6 +46,8 @@ $('btn-again').addEventListener('click', () => {
   game.quitToTitle();
   hud.showScreen('select');
 });
+$('btn-q-high').addEventListener('click', () => game.setQuality('high'));
+$('btn-q-med').addEventListener('click', () => game.setQuality('medium'));
 
 // Clique no canvas durante o jogo (ex.: após ESC) volta a travar o cursor
 game.renderer.domElement.addEventListener('click', () => {
