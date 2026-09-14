@@ -1,0 +1,17 @@
+---
+description: Publicar no GitHub ao finalizar qualquer alteração neste jogo
+alwaysApply: true
+---
+
+# Publicar automaticamente
+
+Neste repositório, **commit e push são parte de terminar o trabalho**. Não espere o usuário pedir.
+
+Quando uma alteração estiver pronta (código, UI, dados, regras):
+
+1. `git add` só os arquivos da mudança (nunca `.env`, chaves ou credenciais).
+2. Commit em `main` com mensagem curta em português, no estilo do repo, focada no porquê.
+3. `git push origin HEAD` na hora.
+4. Devolva a URL do commit ou do site Pages se fizer sentido.
+
+Não use `--force` em `main`. Não pule hooks. Se o commit ou o push falhar, corrija e tente de novo.
