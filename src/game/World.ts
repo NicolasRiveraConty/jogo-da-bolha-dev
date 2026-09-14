@@ -46,6 +46,11 @@ export class World {
     almeida: new THREE.Vector3(),
     anderson: new THREE.Vector3(),
   };
+  readonly bossSpots: Record<'deyvin' | 'elon' | 'pedro', THREE.Vector3> = {
+    deyvin: new THREE.Vector3(),
+    elon: new THREE.Vector3(),
+    pedro: new THREE.Vector3(),
+  };
   readonly castleBounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
   readonly obstacles: Obstacle[] = [];
   gateOpen = false;
@@ -192,6 +197,15 @@ export class World {
 
     this.carvePath(this.spawn.x, this.spawn.z, this.tower.x, this.tower.z);
     this.carvePath(this.tower.x, this.tower.z, this.castle.x - 18, this.castle.z);
+
+    const placeBoss = (spot: THREE.Vector3, x: number, z: number) => {
+      const h = Math.max(spawnH, this.heightAt(x, z));
+      flatten(x, z, 7, h);
+      spot.set(x, h, z);
+    };
+    placeBoss(this.bossSpots.deyvin, 70, 46);
+    placeBoss(this.bossSpots.elon, 86, 60);
+    placeBoss(this.bossSpots.pedro, 99, 52);
     onProgress?.(0.4);
 
     this.buildTerrain();

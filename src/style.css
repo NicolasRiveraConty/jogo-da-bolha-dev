@@ -230,6 +230,15 @@ kbd {
 #kills b {
   color: var(--text);
 }
+#difficulty-hud {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--dim);
+  text-shadow: 0 1px 2px #000;
+}
+#difficulty-hud b {
+  color: var(--gold);
+}
 
 #bag {
   margin-top: 8px;
@@ -435,6 +444,16 @@ h2.red {
 }
 .sub b {
   color: var(--red);
+}
+.difficulty {
+  margin: -8px auto 22px;
+  font-size: 11px;
+  color: var(--gold);
+  letter-spacing: 1px;
+  text-shadow: 0 2px 0 #000;
+}
+.difficulty b {
+  color: var(--text);
 }
 .btn {
   background: #141c3a;

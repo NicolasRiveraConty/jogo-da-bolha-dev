@@ -1,4 +1,4 @@
-import { HEROES, type HeroDef } from '../game/Data';
+import { DIFFICULTY, HEROES, meleeDamageMul, type HeroDef } from '../game/Data';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -30,6 +30,16 @@ export class Hud {
   private cds = [$('sk1-cd'), $('sk2-cd'), $('sk3-cd')];
   private skills = [$('skill-1'), $('skill-2'), $('skill-3')];
   private hitTimer = 0;
+
+  constructor() {
+    const label = `Dificuldade ${DIFFICULTY} / 10`;
+    const titleDiff = document.getElementById('difficulty-title');
+    const hudDiff = document.getElementById('difficulty-hud');
+    const pauseDiff = document.getElementById('difficulty-pause');
+    if (titleDiff) titleDiff.innerHTML = `Dificuldade <b>${DIFFICULTY}</b> / 10`;
+    if (hudDiff) hudDiff.innerHTML = `Dificuldade <b>${DIFFICULTY}</b>/10`;
+    if (pauseDiff) pauseDiff.textContent = label;
+  }
 
   private screens: Record<Exclude<ScreenId, null>, HTMLElement> = {
     title: $('screen-title'),
@@ -68,7 +78,7 @@ export class Hud {
         <div class="title">${h.title}</div>
         <div class="company">${h.company}</div>
         <div class="desc">${h.description}</div>
-        <div class="stats"><span>HP ${h.hp}</span><span>DANO ${h.damage}</span><span>VEL ${Math.round(h.speed * 100)}%</span></div>
+        <div class="stats"><span>HP ${h.hp}</span><span>DANO ${Math.round(h.damage * meleeDamageMul())}</span><span>VEL ${Math.round(h.speed * 100)}%</span></div>
         <div class="skills">${h.skills.map((s, i) => `<b style="color:${h.accent}">${i + 1}</b> ${s.name}`).join('<br/>')}</div>
       `;
       card.addEventListener('mouseenter', () => onHover?.());

@@ -86,62 +86,62 @@ export interface MobDef {
 }
 
 export const MOBS: Record<MobKind, MobDef> = {
-  pedro: {
-    kind: 'pedro',
-    name: 'Pedro, o CEO',
-    hp: 58,
-    damage: 11,
-    speed: 3.1,
-    xp: 36,
-    coins: 8,
-    meleeRange: 2.1,
-    attackCooldown: 1.25,
-    aggroRange: 15,
-    scale: 1.05,
-    lines: ['Isso não escala!', 'Cadê o ROI?', 'Decisão executiva!', 'Vamos pivotar... em você.'],
+  deyvin: {
+    kind: 'deyvin',
+    name: 'ManoDeyvin',
+    hp: 230,
+    damage: 12,
+    speed: 3.2,
+    xp: 130,
+    coins: 28,
+    meleeRange: 2.4,
+    attackCooldown: 1.2,
+    aggroRange: 16,
+    scale: 1.42,
+    lines: ['Fala, dev!', 'Isso é bug ou feature?', 'Mano...', 'Cafézin primeiro.'],
   },
   elon: {
     kind: 'elon',
     name: 'Elon Musk',
-    hp: 62,
-    damage: 10,
-    speed: 3.3,
-    xp: 40,
-    coins: 10,
-    meleeRange: 2.0,
-    attackCooldown: 1.15,
-    aggroRange: 16,
-    ranged: { cooldown: 2.6, speed: 13, damage: 8, color: 0xffffff, size: 0.28, minRange: 4, name: 'Tweet' },
-    scale: 1.08,
+    hp: 250,
+    damage: 12,
+    speed: 3.15,
+    xp: 150,
+    coins: 32,
+    meleeRange: 2.3,
+    attackCooldown: 1.18,
+    aggroRange: 17,
+    ranged: { cooldown: 2.5, speed: 13, damage: 9, color: 0xffffff, size: 0.36, minRange: 4, name: 'Tweet' },
+    scale: 1.48,
     lines: ['To the moon!', 'We will tweet about this.', '42.0', 'Let that sink in.'],
   },
-  deyvin: {
-    kind: 'deyvin',
-    name: 'ManoDeyvin',
-    hp: 54,
-    damage: 10,
-    speed: 3.4,
-    xp: 34,
-    coins: 7,
-    meleeRange: 2.0,
-    attackCooldown: 1.1,
-    aggroRange: 15,
-    scale: 1,
-    lines: ['Fala, dev!', 'Isso é bug ou feature?', 'Mano...', 'Cafézin primeiro.'],
+  pedro: {
+    kind: 'pedro',
+    name: 'Pedro — Conty',
+    hp: 270,
+    damage: 13,
+    speed: 3.05,
+    xp: 165,
+    coins: 36,
+    meleeRange: 2.45,
+    attackCooldown: 1.22,
+    aggroRange: 16,
+    scale: 1.52,
+    lines: ['Isso não escala!', 'Cadê o ROI?', 'Decisão executiva!', 'Vamos pivotar... em você.'],
   },
   helio: {
     kind: 'helio',
     name: 'HELIO, capanga do REAL OFICIAL',
-    hp: 280,
-    damage: 13,
-    speed: 3.5,
-    xp: 180,
-    coins: 40,
-    meleeRange: 2.3,
-    attackCooldown: 1.35,
-    aggroRange: 16,
-    ranged: { cooldown: 2.6, speed: 12, damage: 8, color: 0x7cff4a, size: 0.32, minRange: 3.5, name: 'Gosma de taxa' },
-    scale: 1.15,
+    hp: 300,
+    damage: 14,
+    speed: 3.35,
+    xp: 190,
+    coins: 42,
+    meleeRange: 2.55,
+    attackCooldown: 1.3,
+    aggroRange: 17,
+    ranged: { cooldown: 2.6, speed: 12, damage: 9, color: 0x7cff4a, size: 0.38, minRange: 3.5, name: 'Gosma de taxa' },
+    scale: 1.58,
     lines: ['O chefe vai te CORTAR!', 'Taxa do capanga!', 'Goblins também cobram juros!', 'Sai da frente do castelo!'],
   },
   boss: {
@@ -161,6 +161,8 @@ export const MOBS: Record<MobKind, MobDef> = {
   },
 };
 
+export const BIG_ENEMIES: MobKind[] = ['deyvin', 'elon', 'pedro', 'helio', 'boss'];
+
 export interface NpcDef {
   id: 'banhos' | 'almeida' | 'anderson';
   name: string;
@@ -173,6 +175,23 @@ export const NPCS: NpcDef[] = [
   { id: 'almeida', name: 'Almeida', title: 'Dev forte', greet: 'Bora melhorar essa arma. Traz umas moedas que eu faço o upgrade.' },
   { id: 'anderson', name: 'Anderson', title: 'Hotfix humano', greet: 'Relaxa. Hotfix: HP cheio e habilidades no ponto.' },
 ];
+
+/** Dificuldade de 1 (fácil) a 10 (difícil). 6 é o equilíbrio atual. */
+export const DIFFICULTY = 6;
+
+function clampDifficulty(d: number): number {
+  return Math.max(1, Math.min(10, Math.round(d)));
+}
+
+/** Golpe da espada/halter. Dificuldade 6 = +25% sobre o valor base. */
+export function meleeDamageMul(d = DIFFICULTY): number {
+  return 1.25 - 0.0625 * (clampDifficulty(d) - 6);
+}
+
+/** Vida dos inimigos. Dificuldade 6 = −20% sobre o valor base. */
+export function enemyHpMul(d = DIFFICULTY): number {
+  return 0.8 + 0.05 * (clampDifficulty(d) - 6);
+}
 
 export const XP_TABLE = [0, 60, 150, 280, 450, 680, 980, 1400, 1900];
 

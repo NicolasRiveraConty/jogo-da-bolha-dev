@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { attachToHand, LOOKS, makePerson, makePhone, makeSword, type Humanoid } from './Characters';
-import { MOBS, type MobDef, type MobKind } from './Data';
+import { BIG_ENEMIES, enemyHpMul, MOBS, type MobDef, type MobKind } from './Data';
 import type { World } from './World';
 
 export class Mob {
@@ -39,7 +39,7 @@ export class Mob {
     this.group = this.model.group;
     this.pos.set(x, y, z);
     this.home.copy(this.pos);
-    this.maxHp = Math.round(this.def.hp * hpMul);
+    this.maxHp = Math.round(this.def.hp * hpMul * enemyHpMul());
     this.hp = this.maxHp;
     const clones = new Map<string, THREE.MeshStandardMaterial>();
     this.group.traverse((o) => {
@@ -58,7 +58,7 @@ export class Mob {
   }
 
   get isBoss(): boolean {
-    return this.def.kind === 'boss' || this.def.kind === 'helio';
+    return BIG_ENEMIES.includes(this.def.kind);
   }
 
   get center(): THREE.Vector3 {
@@ -77,7 +77,7 @@ export class Mob {
       const dir = this.pos.clone().sub(from);
       dir.y = 0;
       dir.normalize();
-      const mass = this.def.kind === 'boss' ? 0.22 : this.def.kind === 'helio' ? 0.45 : 1;
+      const mass = this.def.kind === 'boss' ? 0.22 : 0.42;
       this.knock.add(dir.multiplyScalar(knockPower * mass));
     }
     if (this.hp <= 0) this.dead = true;
