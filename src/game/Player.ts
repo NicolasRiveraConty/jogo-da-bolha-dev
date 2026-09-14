@@ -118,7 +118,7 @@ export class Player {
     this.model.head.rotation.x = -this.pitch * 0.45;
 
     const eye = this.eyePos;
-    const back = this.forward.clone().multiplyScalar(-3.8).add(new THREE.Vector3(0, 0.45, 0));
+    const back = this.forward.clone().multiplyScalar(-2.55).add(new THREE.Vector3(0, 0.32, 0));
     let dist = back.length();
     const dir = back.normalize();
     for (let d = 0.4; d < dist; d += 0.18) {

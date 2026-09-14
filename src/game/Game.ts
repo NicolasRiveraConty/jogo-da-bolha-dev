@@ -371,7 +371,8 @@ export class Game {
       const spot = this.world.npcSpots[def.id];
       const model = makePerson(map[def.id]);
       model.group.position.set(spot.x, this.world.heightAt(spot.x, spot.z), spot.z);
-      model.group.rotation.y = Math.random() * Math.PI * 2;
+      const fire = this.world.npcSpots.banhos.clone().add(this.world.npcSpots.almeida).add(this.world.npcSpots.anderson).multiplyScalar(1 / 3);
+      model.group.rotation.y = Math.atan2(fire.x - spot.x, fire.z - spot.z);
       this.scene.add(model.group);
       this.npcs.push({ id: def.id, used: 0, model });
     }
@@ -759,7 +760,14 @@ export class Game {
     this.world.update(dt, this.time);
     this.particles.update(dt);
     this.texts.update(dt);
-    for (const n of this.npcs) n.model.animate(this.time, 0);
+    for (const n of this.npcs) {
+      n.model.animate(this.time, 0);
+      if (this.player && n.model.group.position.distanceTo(this.player.pos) < 5) {
+        const dx = this.player.pos.x - n.model.group.position.x;
+        const dz = this.player.pos.z - n.model.group.position.z;
+        n.model.group.rotation.y = Math.atan2(dx, dz);
+      }
+    }
   }
 
   private update(dt: number): void {
