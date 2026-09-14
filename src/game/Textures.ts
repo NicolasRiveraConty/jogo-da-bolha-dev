@@ -316,6 +316,24 @@ export function fabricTexture(color: [number, number, number], name: string): Te
   );
 }
 
+export function plasterTexture(): TextureSet {
+  return buildTextureSet(
+    'plaster',
+    256,
+    (_x, _y, u, v) => {
+      const n = tileNoise(u, v, 18, 4);
+      const blotch = tileNoise(u * 0.6, v * 0.6, 8, 3);
+      const hair = tileNoise(u, v, 80, 2);
+      const crack = Math.abs(Math.sin((u * 7 + v * 3) * Math.PI * 2 + blotch * 4));
+      const line = crack > 0.985 ? 0.72 : 1;
+      const cream = mix([232, 220, 198], [244, 236, 214], n * 0.55 + blotch * 0.45);
+      const dirt = mix(cream, [186, 168, 140], hair * 0.18);
+      return { color: [dirt[0] * line, dirt[1] * line, dirt[2] * line], height: 0.35 + n * 0.25 + hair * 0.08, roughness: 0.92 };
+    },
+    1.4,
+  );
+}
+
 export function dirtPathTexture(): TextureSet {
   return buildTextureSet(
     'dirt',

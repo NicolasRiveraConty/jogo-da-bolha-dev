@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeRock, makeTree } from './Characters';
+import { cottageFootprint, makeCottage, makePlaza, type CottageSpec } from './Village';
 import { Noise2D, Rng } from './Noise';
 import {
   cobbleTexture,
@@ -197,7 +198,7 @@ export class World {
     };
 
     const spawnH = this.heightAt(this.spawn.x, this.spawn.z);
-    flatten(this.spawn.x, this.spawn.z, 12, spawnH);
+    flatten(this.spawn.x, this.spawn.z, 17, spawnH);
     this.spawn.y = spawnH;
     const towerH = Math.max(spawnH + 1, this.heightAt(this.tower.x, this.tower.z));
     flatten(this.tower.x, this.tower.z, 10, towerH);
@@ -374,7 +375,7 @@ export class World {
 
   private nearLandmark(x: number, z: number, r: number): boolean {
     const d = (l: { x: number; z: number }) => Math.hypot(x - l.x, z - l.z);
-    return d(this.spawn) < r || d(this.tower) < r || d(this.castle) < r + 16 || d(this.dens.deyvin) < r || d(this.dens.elon) < r || d(this.dens.pedro) < r;
+    return d(this.spawn) < r + 5 || d(this.tower) < r || d(this.castle) < r + 16 || d(this.dens.deyvin) < r || d(this.dens.elon) < r || d(this.dens.pedro) < r;
   }
 
   private addBoxObs(minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number) {
@@ -383,45 +384,52 @@ export class World {
 
   private buildCamp(level: number) {
     const { x, z } = this.spawn;
-    const wood = pbrMat(woodTexture(), { roughness: 0.75 });
-    const roof = pbrMat(roofTexture(), { roughness: 0.7 });
-    const cabin = new THREE.Group();
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.12, 5.2), wood);
-    floor.position.set(x - 8, level + 0.06, z - 1);
-    floor.castShadow = floor.receiveShadow = true;
-    cabin.add(floor);
-    const wallH = 2.4;
-    const walls = [
-      [x - 8, level + wallH / 2, z - 3.5, 5.2, wallH, 0.18],
-      [x - 8, level + wallH / 2, z + 1.5, 5.2, wallH, 0.18],
-      [x - 10.5, level + wallH / 2, z - 1, 0.18, wallH, 5.2],
+    this.group.add(makePlaza(x, level, z, 5.5));
+    this.obstacles.push({ kind: 'cyl', x, z, r: 0.45, y0: level, y1: level + 3.6 });
+
+    const houses: CottageSpec[] = [
+      { x: x - 8.6, y: level, z: z - 1.4, yaw: Math.PI / 2, w: 4.4, d: 3.5, stories: 1 },
+      { x: x + 8.8, y: level, z: z + 0.6, yaw: -Math.PI / 2, w: 3.9, d: 3.3, stories: 1 },
+      { x: x - 3.2, y: level, z: z + 8.8, yaw: Math.PI, w: 4.2, d: 3.4, stories: 2, h: 3.2 },
+      { x: x + 4.6, y: level, z: z + 8.6, yaw: Math.PI, w: 3.7, d: 3.2 },
+      { x: x + 0.8, y: level, z: z - 9.0, yaw: 0, w: 4.6, d: 3.5 },
     ];
-    for (const [wx, wy, wz, sx, sy, sz] of walls) {
-      const w = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), wood);
-      w.position.set(wx, wy, wz);
-      w.castShadow = w.receiveShadow = true;
-      cabin.add(w);
+    for (const spec of houses) {
+      this.group.add(makeCottage(spec));
+      const f = cottageFootprint(spec);
+      this.addBoxObs(f.minX, f.maxX, level, level + 4.2, f.minZ, f.maxZ);
     }
-    const front = new THREE.Mesh(new THREE.BoxGeometry(0.18, wallH, 1.7), wood);
-    front.position.set(x - 5.5, level + wallH / 2, z - 2.4);
-    front.castShadow = true;
-    cabin.add(front);
-    const front2 = front.clone();
-    front2.position.z = z + 0.4;
-    cabin.add(front2);
-    const roofM = new THREE.Mesh(new THREE.ConeGeometry(4.2, 1.8, 4), roof);
-    roofM.position.set(x - 8, level + wallH + 0.9, z - 1);
-    roofM.rotation.y = Math.PI / 4;
-    roofM.castShadow = true;
-    cabin.add(roofM);
-    this.group.add(cabin);
-    this.addBoxObs(x - 10.7, x - 5.4, level, level + 4, z - 3.7, z + 1.7);
 
-    this.addCampfire(x + 1.5, level, z - 4);
+    this.placeRoadCottages();
+    this.addCampfire(x + 2.4, level, z - 3.6);
 
-    this.npcSpots.banhos.set(x + 3.2, level, z - 1.5);
-    this.npcSpots.almeida.set(x - 2.2, level, z + 3.2);
-    this.npcSpots.anderson.set(x + 4.5, level, z + 3.5);
+    this.npcSpots.banhos.set(x + 3.1, level, z - 1.6);
+    this.npcSpots.almeida.set(x - 2.4, level, z + 3.0);
+    this.npcSpots.anderson.set(x + 4.2, level, z + 3.2);
+  }
+
+  private placeRoadCottages() {
+    const { x, z } = this.spawn;
+    const tx = this.tower.x - x;
+    const tz = this.tower.z - z;
+    const len = Math.hypot(tx, tz) || 1;
+    const px = -tz / len;
+    const pz = tx / len;
+    const spots: [number, number][] = [
+      [0.22, 1],
+      [0.38, -1],
+    ];
+    for (const [t, side] of spots) {
+      const cx = x + tx * t + px * 7.2 * side;
+      const cz = z + tz * t + pz * 7.2 * side;
+      const y = this.heightAt(cx, cz);
+      if (y < this.waterLevel + 0.4) continue;
+      const yaw = Math.atan2(x + tx * t - cx, z + tz * t - cz);
+      const spec: CottageSpec = { x: cx, y, z: cz, yaw, w: 3.8, d: 3.2 };
+      this.group.add(makeCottage(spec));
+      const f = cottageFootprint(spec);
+      this.addBoxObs(f.minX, f.maxX, y, y + 4, f.minZ, f.maxZ);
+    }
   }
 
   private addCampfire(x: number, y: number, z: number) {
