@@ -11,7 +11,7 @@ export class Player {
   readonly pos = new THREE.Vector3();
   readonly vel = new THREE.Vector3();
   yaw = 0;
-  pitch = -0.18;
+  pitch = -0.14;
   onGround = false;
   inWater = false;
   readonly width = 0.45;
@@ -132,7 +132,7 @@ export class Player {
     this.model.head.rotation.x = -this.pitch * 0.45;
 
     const eye = this.eyePos;
-    const back = this.forward.clone().multiplyScalar(-2.55).add(new THREE.Vector3(0, 0.32, 0));
+    const back = this.forward.clone().multiplyScalar(-3.35).add(new THREE.Vector3(0, 0.42, 0));
     let dist = back.length();
     const dir = back.normalize();
     for (let d = 0.4; d < dist; d += 0.18) {

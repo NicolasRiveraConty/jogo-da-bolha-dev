@@ -1,24 +1,32 @@
 import * as THREE from 'three';
 import { barkTexture, colorMat, fabricTexture, knitBeanieTexture, leatherTexture, metalTexture, pbrMat, rockTexture, skinTexture } from './Textures';
 
-const skinCache = new Map<string, THREE.MeshStandardMaterial>();
+const skinCache = new Map<string, THREE.MeshPhysicalMaterial>();
 
-function skin(hex: number): THREE.MeshStandardMaterial {
+function skin(hex: number): THREE.MeshPhysicalMaterial {
   let m = skinCache.get(String(hex));
   if (m) return m;
   const r = (hex >> 16) & 255;
   const g = (hex >> 8) & 255;
   const b = hex & 255;
-  m = pbrMat(skinTexture([r, g, b], String(hex)), { roughness: 0.5, bump: 0.45 });
+  m = pbrMat(skinTexture([r, g, b], String(hex)), {
+    roughness: 0.42,
+    bump: 0.55,
+    sheen: 0.35,
+    sheenColor: 0xc4785a,
+    clearcoat: 0.06,
+    clearcoatRoughness: 0.62,
+    env: 0.55,
+  });
   skinCache.set(String(hex), m);
   return m;
 }
 
-function cloth(hex: number, name: string): THREE.MeshStandardMaterial {
+function cloth(hex: number, name: string): THREE.MeshPhysicalMaterial {
   const r = (hex >> 16) & 255;
   const g = (hex >> 8) & 255;
   const b = hex & 255;
-  return pbrMat(fabricTexture([r, g, b], name), { roughness: 0.88 });
+  return pbrMat(fabricTexture([r, g, b], name), { roughness: 0.86, sheen: 0.28, sheenColor: hex, bump: 0.7, env: 0.85 });
 }
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.Mesh {
@@ -28,11 +36,11 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.Mesh {
   return o;
 }
 
-function cap(r: number, len: number, mat: THREE.Material, segs = 12): THREE.Mesh {
-  return mesh(new THREE.CapsuleGeometry(r, len, 8, segs), mat);
+function cap(r: number, len: number, mat: THREE.Material, segs = 16): THREE.Mesh {
+  return mesh(new THREE.CapsuleGeometry(r, len, 10, segs), mat);
 }
 
-function sph(r: number, mat: THREE.Material, w = 18, h = 14): THREE.Mesh {
+function sph(r: number, mat: THREE.Material, w = 28, h = 22): THREE.Mesh {
   return mesh(new THREE.SphereGeometry(r, w, h), mat);
 }
 
@@ -220,7 +228,7 @@ export function makePerson(look: Look): Humanoid {
   const shirt = cloth(look.shirt, `s${look.shirt}`);
   const pants = cloth(look.pants, `p${look.pants}`);
   const shoe = colorMat(look.shoes, { roughness: 0.65, metalness: 0.08 });
-  const hairM = colorMat(look.hair, { roughness: 0.48 });
+  const hairM = colorMat(look.hair, { roughness: 0.62, sheen: 0.22, sheenColor: look.hair, env: 0.55 });
 
   const torsoW = 0.16 * musc * (gob ? 0.92 : 1);
   const headR = gob ? 0.155 : 0.118;
@@ -344,7 +352,7 @@ export function makePerson(look: Look): Humanoid {
   head.position.y = 0.32 + (gob ? 0.03 : 0);
   body.add(head);
 
-  const skull = sph(headR, sMat, 22, 18);
+  const skull = sph(headR, sMat, 32, 26);
   skull.scale.set(0.92, 1.08, 0.96);
   head.add(skull);
   const jaw = mesh(new THREE.SphereGeometry(headR * 0.72, 14, 10), sMat);
@@ -440,7 +448,7 @@ export function makePerson(look: Look): Humanoid {
     head.add(lash);
   }
 
-  const upperLip = mesh(new THREE.SphereGeometry(0.022, 10, 6), colorMat(0xb06060, { roughness: 0.45 }));
+  const upperLip = mesh(new THREE.SphereGeometry(0.022, 12, 8), colorMat(0xb06060, { roughness: 0.32, sheen: 0.55, clearcoat: 0.2 }));
   upperLip.scale.set(1.5, 0.35, 0.7);
   upperLip.position.set(0, gob ? -0.048 : -0.042, headR * 0.88);
   head.add(upperLip);
@@ -840,19 +848,19 @@ export const LOOKS = {
 
 export function makeTree(seed: number): THREE.Group {
   const g = new THREE.Group();
-  const bark = pbrMat(barkTexture(), { roughness: 0.95 });
-  const h = 2.2 + (seed % 7) * 0.18;
-  const trunk = mesh(new THREE.CylinderGeometry(0.12, 0.18, h, 8), bark);
+  const bark = pbrMat(barkTexture(), { roughness: 0.96, bump: 1.35, env: 0.55 });
+  const h = 2.45 + (seed % 7) * 0.18;
+  const trunk = mesh(new THREE.CylinderGeometry(0.1, 0.2, h, 12), bark);
   trunk.position.y = h / 2;
   g.add(trunk);
-  const leafCols = [0x3d8a32, 0x2f6e28, 0x4a9a38, 0x356e2a];
-  const leaf = colorMat(leafCols[seed % leafCols.length], { roughness: 0.85 });
-  const crownY = h * 0.72;
-  for (let i = 0; i < 5; i++) {
-    const r = 0.7 + (i % 3) * 0.18;
-    const s = sph(r, leaf, 10, 8);
-    s.position.set(Math.sin(i * 1.7) * 0.35, crownY + (i % 2) * 0.35, Math.cos(i * 1.3) * 0.35);
-    s.scale.y = 0.85;
+  const leafCols = [0x1e3a18, 0x2a4a20, 0x243c16, 0x355828];
+  const leaf = colorMat(leafCols[seed % leafCols.length], { roughness: 0.82, sheen: 0.18, env: 0.55 });
+  const crownY = h * 0.78;
+  for (let i = 0; i < 8; i++) {
+    const r = 0.48 + (i % 3) * 0.12;
+    const s = sph(r, leaf, 18, 14);
+    s.position.set(Math.sin(i * 1.9 + seed) * 0.32, crownY + (i % 3) * 0.18, Math.cos(i * 1.4 + seed) * 0.32);
+    s.scale.set(1.05, 0.82, 1.05);
     g.add(s);
   }
   return g;

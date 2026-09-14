@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -17,7 +17,7 @@ import { World } from './World';
 const SUN_DIR = new THREE.Vector3(0.48, 0.72, 0.38).normalize();
 const SKY_ZENITH = new THREE.Color(0x4a86c8);
 const SKY_HORIZON = new THREE.Color(0xf3c38a);
-const FOG_COLOR = new THREE.Color(0xd9b48a);
+const FOG_COLOR = new THREE.Color(0xb8c6d4);
 
 type Phase = 'menu' | 'playing' | 'dead' | 'victory';
 
@@ -36,7 +36,6 @@ export class Game {
 
   private sun!: THREE.DirectionalLight;
   private sky!: THREE.Mesh;
-  private clouds: THREE.Group[] = [];
   private beam!: THREE.Mesh;
   private beamLight!: THREE.PointLight;
   private composer!: EffectComposer;
@@ -101,27 +100,25 @@ export class Game {
     private hud: Hud,
     container: HTMLElement,
   ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.95;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
 
-    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.08, 420);
+    this.camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.12, 280);
     this.scene.add(this.camera);
-    this.scene.fog = new THREE.Fog(FOG_COLOR, 48, 160);
+    this.scene.fog = new THREE.FogExp2(FOG_COLOR, 0.0072);
     this.scene.background = FOG_COLOR;
-
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
 
     this.setupLights();
     this.setupSky();
     this.setupComposer();
+    this.loadIbl();
     this.scene.add(this.world.group, this.particles.group, this.projectiles.group, this.texts.group);
     this.bindEvents();
 
@@ -140,9 +137,9 @@ export class Game {
   setQuality(q: 'high' | 'medium'): void {
     this.quality = q;
     const high = q === 'high';
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, high ? 1.5 : 1));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, high ? 2 : 1.15));
     this.sun.shadow.mapSize.set(high ? 2048 : 1024, high ? 2048 : 1024);
-    this.bloom.strength = high ? 0.2 : 0.12;
+    this.bloom.strength = high ? 0.08 : 0.04;
     if (this.ssao) this.ssao.enabled = high;
     this.hud.toast(high ? 'Qualidade: Alta' : 'Qualidade: Média');
   }
@@ -152,31 +149,55 @@ export class Game {
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     try {
       this.ssao = new SSAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
-      this.ssao.kernelRadius = 8;
-      this.ssao.minDistance = 0.001;
-      this.ssao.maxDistance = 0.08;
+      this.ssao.kernelRadius = 10;
+      this.ssao.minDistance = 0.0005;
+      this.ssao.maxDistance = 0.1;
       this.composer.addPass(this.ssao);
     } catch {
       this.ssao = null;
     }
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.18, 0.4, 0.92);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.07, 0.55, 0.97);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
   }
 
+  private loadIbl(): void {
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const fallback = new THREE.Scene();
+    fallback.background = SKY_HORIZON;
+    fallback.add(new THREE.HemisphereLight(0xd4e6ff, 0x5a4030, 1));
+    this.scene.environment = pmrem.fromScene(fallback, 0.04).texture;
+    this.scene.environmentIntensity = 0.72;
+
+    new HDRLoader().load(
+      `${import.meta.env.BASE_URL}assets/env/sky.hdr`,
+      (hdr) => {
+        hdr.mapping = THREE.EquirectangularReflectionMapping;
+        const env = pmrem.fromEquirectangular(hdr).texture;
+        this.scene.environment = env;
+        this.scene.environmentIntensity = 0.78;
+        this.sky.visible = true;
+        hdr.dispose();
+        pmrem.dispose();
+      },
+      undefined,
+      () => pmrem.dispose(),
+    );
+  }
+
   private setupLights(): void {
-    this.scene.add(new THREE.HemisphereLight(0xb7d4f5, 0x6b4a2b, 0.9));
-    this.sun = new THREE.DirectionalLight(0xffe1b0, 3.1);
+    this.scene.add(new THREE.HemisphereLight(0xd2e4f4, 0x4a3828, 0.42));
+    this.sun = new THREE.DirectionalLight(0xffe6c4, 3.35);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
-    const s = 42;
+    const s = 28;
     this.sun.shadow.camera.left = -s;
     this.sun.shadow.camera.right = s;
     this.sun.shadow.camera.top = s;
     this.sun.shadow.camera.bottom = -s;
-    this.sun.shadow.camera.near = 2;
-    this.sun.shadow.camera.far = 220;
-    this.sun.shadow.bias = -0.00035;
+    this.sun.shadow.camera.near = 4;
+    this.sun.shadow.camera.far = 160;
+    this.sun.shadow.bias = -0.00025;
     this.sun.shadow.normalBias = 0.04;
     this.scene.add(this.sun, this.sun.target);
 
@@ -215,30 +236,29 @@ export class Game {
       depthWrite: false,
       fog: false,
     });
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(380, 24, 16), mat);
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(260, 32, 20), mat);
     this.scene.add(this.sky);
-
-    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xfff7ee, roughness: 1, transparent: true, opacity: 0.88 });
-    for (let i = 0; i < 18; i++) {
-      const g = new THREE.Group();
-      for (let j = 0; j < 4; j++) {
-        const s = new THREE.Mesh(new THREE.SphereGeometry(2.2 + Math.random() * 2.4, 10, 8), cloudMat);
-        s.position.set((Math.random() - 0.5) * 8, Math.random() * 1.2, (Math.random() - 0.5) * 5);
-        s.scale.y = 0.45;
-        s.castShadow = true;
-        g.add(s);
-      }
-      g.position.set(Math.random() * 200 - 20, 38 + Math.random() * 8, Math.random() * 200 - 20);
-      this.clouds.push(g);
-      this.scene.add(g);
-    }
   }
 
   async buildWorld(): Promise<void> {
     const tick = () => new Promise<void>((r) => setTimeout(r, 0));
     this.hud.setLoading(0);
     await tick();
-    this.world.generate((p) => this.hud.setLoading(p));
+    const { grassTexture, plasterTexture, roofTexture, stoneBrickTexture, woodTexture, cobbleTexture, barkTexture } = await import('./Textures');
+    grassTexture();
+    this.hud.setLoading(0.08);
+    await tick();
+    plasterTexture();
+    roofTexture();
+    this.hud.setLoading(0.16);
+    await tick();
+    stoneBrickTexture();
+    woodTexture();
+    cobbleTexture();
+    barkTexture();
+    this.hud.setLoading(0.24);
+    await tick();
+    this.world.generate((p) => this.hud.setLoading(0.24 + p * 0.7));
     await tick();
     this.worldReady = true;
     this.hud.setLoading(null);
@@ -907,8 +927,8 @@ export class Game {
       if (this.worldReady) {
         const s = this.world.spawn;
         const a = this.time * 0.07;
-        this.camera.position.set(s.x + Math.cos(a) * 16, s.y + 5.5, s.z + Math.sin(a) * 16);
-        this.camera.lookAt(s.x, s.y + 1.2, s.z);
+        this.camera.position.set(s.x + Math.cos(a) * 18, s.y + 4.8, s.z + Math.sin(a) * 18);
+        this.camera.lookAt(s.x, s.y + 1.35, s.z);
       }
     } else if (this.player) {
       if (this.talking) {
@@ -923,10 +943,6 @@ export class Game {
 
   private updateEnvironment(dt: number): void {
     this.sky.position.copy(this.camera.position);
-    for (const c of this.clouds) {
-      c.position.x += dt * 0.7;
-      if (c.position.x > this.world.sizeX + 20) c.position.x = -20;
-    }
     const focus = this.player ? this.player.pos : this.camera.position;
     this.sun.target.position.set(Math.round(focus.x), 10, Math.round(focus.z));
     this.sun.position.copy(this.sun.target.position).addScaledVector(SUN_DIR, 90);

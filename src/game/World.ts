@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { makeRock, makeTree } from './Characters';
 import { cottageFootprint, makeCottage, makePlaza, type CottageSpec } from './Village';
 import { Noise2D, Rng } from './Noise';
@@ -11,6 +12,7 @@ import {
   flameTexture,
   grassTexture,
   pbrMat,
+  plasterTexture,
   rockTexture,
   roofTexture,
   sandTexture,
@@ -266,11 +268,11 @@ export class World {
     geo.rotateX(-Math.PI / 2);
     const pos = geo.attributes.position;
     const color = new Float32Array(pos.count * 3);
-    const grass = new THREE.Color(0x4d8a38);
-    const dirt = new THREE.Color(0x8a6a42);
-    const sand = new THREE.Color(0xd2c08a);
-    const rock = new THREE.Color(0x8a8680);
-    const snow = new THREE.Color(0xeef4fa);
+    const grass = new THREE.Color(0x355c2c);
+    const dirt = new THREE.Color(0x6e5436);
+    const sand = new THREE.Color(0xc2b07a);
+    const rock = new THREE.Color(0x7a7670);
+    const snow = new THREE.Color(0xe8eef4);
     const tmp = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i) + this.sizeX / 2;
@@ -297,7 +299,7 @@ export class World {
     grassSet.map.repeat.set(42, 42);
     grassSet.normalMap.repeat.set(42, 42);
     grassSet.roughnessMap.repeat.set(42, 42);
-    const mat = pbrMat(grassSet, { roughness: 0.92, bump: 1.4 });
+    const mat = pbrMat(grassSet, { roughness: 0.9, bump: 1.7, env: 0.7 });
     mat.vertexColors = true;
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(this.sizeX / 2, 0, this.sizeZ / 2);
@@ -324,16 +326,19 @@ export class World {
     const geo = new THREE.PlaneGeometry(this.sizeX + 20, this.sizeZ + 20, 32, 32);
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshPhysicalMaterial({
-      color: 0x1a5a88,
-      roughness: 0.28,
+      color: 0x1a4e72,
+      roughness: 0.12,
       metalness: 0.02,
-      transmission: 0.12,
-      thickness: 0.8,
+      transmission: 0.42,
+      ior: 1.333,
+      thickness: 1.6,
       transparent: true,
-      opacity: 0.88,
-      envMapIntensity: 0.35,
+      opacity: 0.92,
+      envMapIntensity: 1.15,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.28,
       normalMap: this.waterN1,
-      normalScale: new THREE.Vector2(0.45, 0.45),
+      normalScale: new THREE.Vector2(0.55, 0.55),
     });
     this.water = new THREE.Mesh(geo, mat);
     this.water.position.set(this.sizeX / 2, this.waterLevel, this.sizeZ / 2);
@@ -455,35 +460,75 @@ export class World {
     ring.add(flame);
     const light = new THREE.PointLight(0xff7a30, 7, 12, 1.6);
     light.position.set(x, y + 0.7, z);
-    light.castShadow = true;
-    light.shadow.mapSize.set(512, 512);
     ring.add(light);
     this.fireLights.push(light);
     this.group.add(ring);
   }
 
+  private rbox(w: number, h: number, d: number, mat: THREE.Material, radius = 0.05): THREE.Mesh {
+    const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, Math.min(radius, Math.min(w, h, d) * 0.2)), mat);
+    m.castShadow = m.receiveShadow = true;
+    return m;
+  }
+
   private buildTower(level: number) {
     const { x, z } = this.tower;
-    const stone = pbrMat(stoneBrickTexture(), { roughness: 0.82, bump: 1.2 });
-    const dark = pbrMat(cobbleTexture(), { roughness: 0.85 });
-    const roof = pbrMat(roofTexture(), { roughness: 0.7 });
-    const r = 3.4;
+    const stone = pbrMat(stoneBrickTexture(), { roughness: 0.86, bump: 1.35, env: 0.8 });
+    const dark = pbrMat(cobbleTexture(), { roughness: 0.88, bump: 1.1 });
+    const roof = pbrMat(roofTexture(), { roughness: 0.68, bump: 1.2 });
+    const wood = pbrMat(woodTexture(), { roughness: 0.72 });
+    const r = 3.45;
     const h = 11;
-    const wall = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.25, h, 20, 1, true), stone);
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(r, r + 0.32, h, 28, 1, true), stone);
     wall.position.set(x, level + h / 2, z);
     wall.castShadow = wall.receiveShadow = true;
     this.group.add(wall);
-    const floor = new THREE.Mesh(new THREE.CylinderGeometry(r - 0.05, r - 0.05, 0.2, 20), dark);
-    floor.position.set(x, level + 0.1, z);
+    for (const y of [0.35, 3.6, 7.1, 10.2]) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(r + 0.08, 0.08, 8, 28), stone);
+      band.rotation.x = Math.PI / 2;
+      band.position.set(x, level + y, z);
+      band.castShadow = true;
+      this.group.add(band);
+    }
+    const floor = new THREE.Mesh(new THREE.CylinderGeometry(r - 0.08, r - 0.08, 0.22, 24), dark);
+    floor.position.set(x, level + 0.11, z);
     floor.receiveShadow = true;
     this.group.add(floor);
-    const top = new THREE.Mesh(new THREE.ConeGeometry(r + 0.5, 3.2, 20), roof);
-    top.position.set(x, level + h + 1.5, z);
+    const merlonR = r + 0.12;
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      if (i % 2 === 0) continue;
+      const merlon = this.rbox(0.38, 0.72, 0.28, stone, 0.04);
+      merlon.position.set(x + Math.cos(a) * merlonR, level + h + 0.36, z + Math.sin(a) * merlonR);
+      merlon.rotation.y = -a;
+      this.group.add(merlon);
+    }
+    const top = new THREE.Mesh(new THREE.ConeGeometry(r + 0.55, 3.3, 24), roof);
+    top.position.set(x, level + h + 2.05, z);
     top.castShadow = true;
     this.group.add(top);
-    const door = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.6, 0.4), pbrMat(woodTexture(), { roughness: 0.7 }));
-    door.position.set(x - r, level + 1.3, z);
+    const glass = colorMat(0x8aa8b8, { roughness: 0.08, transmission: 0.7, ior: 1.5, thickness: 0.05, env: 1.5, clearcoat: 0.8 });
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.4;
+      const wx = x + Math.cos(a) * (r - 0.02);
+      const wz = z + Math.sin(a) * (r - 0.02);
+      const frame = this.rbox(0.62, 0.95, 0.12, wood, 0.02);
+      frame.position.set(wx, level + 4.6 + (i % 2) * 2.4, wz);
+      frame.lookAt(x, frame.position.y, z);
+      this.group.add(frame);
+      const pane = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.78), glass);
+      pane.position.copy(frame.position);
+      pane.lookAt(x, pane.position.y, z);
+      pane.position.addScaledVector(new THREE.Vector3(wx - x, 0, wz - z).normalize(), 0.08);
+      this.group.add(pane);
+    }
+    const door = this.rbox(1.45, 2.55, 0.18, wood, 0.03);
+    door.position.set(x - r + 0.05, level + 1.28, z);
     this.group.add(door);
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.08, 8, 16, Math.PI), stone);
+    arch.rotation.y = Math.PI / 2;
+    arch.position.set(x - r + 0.02, level + 2.55, z);
+    this.group.add(arch);
     this.obstacles.push({ kind: 'cyl', x, z, r: r - 0.15, y0: level + 0.4, y1: level + h });
     this.addCampfire(x - r - 3.5, level, z);
   }
@@ -563,8 +608,8 @@ export class World {
 
   private buildPedroHq(level: number) {
     const { x, z } = this.dens.pedro;
-    const wall = pbrMat(fabricTexture([32, 64, 120], 'conty'), { roughness: 0.7 });
-    const gold = colorMat(0xe6c35a, { metalness: 0.8, roughness: 0.3, emissive: 0x553300, emissiveIntensity: 0.1 });
+    const wall = pbrMat(plasterTexture(), { color: 0xc8b898, roughness: 0.86, bump: 0.8 });
+    const gold = colorMat(0xc4a24a, { metalness: 0.72, roughness: 0.35, emissive: 0x553300, emissiveIntensity: 0.06 });
     const cobble = pbrMat(cobbleTexture(), { roughness: 0.85 });
     const floor = new THREE.Mesh(new THREE.BoxGeometry(10, 0.2, 8.4), cobble);
     floor.position.set(x, level + 0.1, z);
@@ -629,6 +674,22 @@ export class World {
       w.castShadow = w.receiveShadow = true;
       this.group.add(w);
       this.addBoxObs(wx - sx / 2, wx + sx / 2, wy - sy / 2, wy + sy / 2, wz - sz / 2, wz + sz / 2);
+      const alongX = sx > sz;
+      const span = alongX ? sx : sz;
+      const n = Math.floor(span / 1.6);
+      for (let i = 0; i < n; i++) {
+        if (i % 2 === 0) continue;
+        const t = (i + 0.5) / n - 0.5;
+        const merlon = this.rbox(alongX ? 0.7 : thick + 0.12, 0.7, alongX ? thick + 0.12 : 0.7, brick, 0.04);
+        merlon.position.set(alongX ? wx + t * span : wx, level + wallH + 0.35, alongX ? wz : wz + t * span);
+        this.group.add(merlon);
+      }
+      for (let i = 0; i < 4; i++) {
+        const t = (i + 0.5) / 4 - 0.5;
+        const slit = this.rbox(alongX ? 0.22 : 0.18, 1.15, alongX ? 0.18 : 0.22, colorMat(0x1a1a18, { roughness: 0.9 }), 0.02);
+        slit.position.set(alongX ? wx + t * span * 0.7 : wx + (sx > 0 ? -0.55 : 0.55), level + 4.2, alongX ? wz + (sz > 0 ? 0.55 : -0.55) : wz + t * span * 0.7);
+        this.group.add(slit);
+      }
     }
     // parede da frente com buraco de portão
     const gx = cx - half;
@@ -665,11 +726,19 @@ export class World {
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
       const tx = cx + sx * half;
       const tz = cz + sz * half;
-      const tw = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.6, wallH + 4, 14), stone);
+      const tw = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.65, wallH + 4, 20), stone);
       tw.position.set(tx, level + (wallH + 4) / 2, tz);
       tw.castShadow = true;
       this.group.add(tw);
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(2.8, 2.6, 12), pbrMat(roofTexture(), { roughness: 0.7 }));
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        if (i % 2 === 0) continue;
+        const merlon = this.rbox(0.42, 0.7, 0.28, stone, 0.04);
+        merlon.position.set(tx + Math.cos(a) * 2.45, level + wallH + 4.15, tz + Math.sin(a) * 2.45);
+        merlon.rotation.y = -a;
+        this.group.add(merlon);
+      }
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(2.85, 2.7, 16), pbrMat(roofTexture(), { roughness: 0.68, bump: 1.15 }));
       cone.position.set(tx, level + wallH + 5.1, tz);
       cone.castShadow = true;
       this.group.add(cone);
@@ -684,10 +753,10 @@ export class World {
     this.throne.x = throneX - 2;
     this.throne.y = level + 0.3;
     this.throne.z = cz;
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 2.4), gold);
+    const seat = this.rbox(2.2, 0.5, 2.4, gold, 0.08);
     seat.position.set(throneX, level + 0.7, cz);
     this.group.add(seat);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.35, 2.6, 2.4), gold);
+    const back = this.rbox(0.38, 2.6, 2.4, gold, 0.06);
     back.position.set(throneX + 0.9, level + 1.8, cz);
     this.group.add(back);
 

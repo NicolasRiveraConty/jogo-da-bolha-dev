@@ -37,7 +37,7 @@ function makeTexture(data: Uint8ClampedArray, size: number, srgb: boolean, repea
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = true;
-  tex.anisotropy = 8;
+  tex.anisotropy = 16;
   tex.needsUpdate = true;
   return tex;
 }
@@ -98,15 +98,15 @@ const rngTex = new Rng(31337);
 export function grassTexture(): TextureSet {
   return buildTextureSet(
     'grass',
-    256,
+    512,
     (_x, _y, u, v) => {
       const n1 = tileNoise(u, v, 18, 4);
       const n2 = tileNoise(u + 0.3, v + 0.7, 60, 3);
       const streak = Math.pow(tileNoise(u * 1.0, v * 6, 40, 2), 3);
       const t = n1 * 0.6 + n2 * 0.4;
-      const dark = [46, 96, 34];
-      const light = [122, 176, 62];
-      const yellow = [150, 168, 70];
+      const dark = [42, 82, 32];
+      const light = [104, 142, 54];
+      const yellow = [118, 132, 56];
       let c = mix(dark, light, t);
       c = mix(c, yellow, streak * 0.6);
       return { color: c, height: t * 0.6 + streak * 0.4, roughness: 0.9 };
@@ -118,7 +118,7 @@ export function grassTexture(): TextureSet {
 export function rockTexture(): TextureSet {
   return buildTextureSet(
     'rock',
-    256,
+    512,
     (_x, _y, u, v) => {
       const n1 = tileNoise(u, v, 8, 5);
       const cracks = 1 - Math.pow(Math.abs(tileNoise(u, v, 22, 3) - 0.5) * 2, 0.35);
@@ -162,7 +162,7 @@ export function snowTexture(): TextureSet {
 export function stoneBrickTexture(): TextureSet {
   return buildTextureSet(
     'stonebrick',
-    256,
+    512,
     (_x, _y, u, v) => {
       const rows = 6;
       const cols = 3;
@@ -219,7 +219,7 @@ export function cobbleTexture(): TextureSet {
   for (let i = 0; i < 40; i++) pts.push([rng.next(), rng.next(), 0.7 + rng.next() * 0.3]);
   return buildTextureSet(
     'cobble',
-    256,
+    512,
     (_x, _y, u, v) => {
       let d1 = 9;
       let d2 = 9;
@@ -252,7 +252,7 @@ export function cobbleTexture(): TextureSet {
 export function woodTexture(): TextureSet {
   return buildTextureSet(
     'wood',
-    256,
+    512,
     (_x, _y, u, v) => {
       const grain = Math.sin((v * 1.0 + tileNoise(u, v, 6, 2) * 0.35) * Math.PI * 24) * 0.5 + 0.5;
       const n = tileNoise(u, v, 30, 3);
@@ -270,7 +270,7 @@ export function woodTexture(): TextureSet {
 export function barkTexture(): TextureSet {
   return buildTextureSet(
     'bark',
-    256,
+    512,
     (_x, _y, u, v) => {
       const ridges = Math.pow(tileNoise(u * 3, v * 0.5, 30, 3), 1.5);
       const n = tileNoise(u, v, 12, 4);
@@ -284,7 +284,7 @@ export function barkTexture(): TextureSet {
 export function roofTexture(): TextureSet {
   return buildTextureSet(
     'roof',
-    256,
+    512,
     (_x, _y, u, v) => {
       const rows = 10;
       const row = Math.floor(v * rows);
@@ -296,7 +296,7 @@ export function roofTexture(): TextureSet {
       const n = tileNoise(u, v, 30, 3);
       const cell = Math.floor((u + offset) * 5) + row * 11;
       const shade = 0.75 + ((cell * 7919) % 100) / 300;
-      const base = mix([124, 46, 38], [190, 84, 60], n);
+      const base = mix([148, 58, 42], [196, 96, 62], n);
       return { color: [base[0] * shade * (lip ? 1 : 0.6), base[1] * shade * (lip ? 1 : 0.6), base[2] * shade * (lip ? 1 : 0.6)], height: lip * (0.4 + curve * 0.5), roughness: 0.75 };
     },
     2.5,
@@ -306,7 +306,7 @@ export function roofTexture(): TextureSet {
 export function fabricTexture(color: [number, number, number], name: string): TextureSet {
   return buildTextureSet(
     `fabric-${name}`,
-    128,
+    256,
     (x, y) => {
       const weave = ((x % 4 < 2) !== (y % 4 < 2) ? 1 : 0.85) as number;
       const n = fbm(x * 0.05, y * 0.05, 2);
@@ -319,18 +319,23 @@ export function fabricTexture(color: [number, number, number], name: string): Te
 export function plasterTexture(): TextureSet {
   return buildTextureSet(
     'plaster',
-    256,
+    512,
     (_x, _y, u, v) => {
-      const n = tileNoise(u, v, 18, 4);
-      const blotch = tileNoise(u * 0.6, v * 0.6, 8, 3);
-      const hair = tileNoise(u, v, 80, 2);
-      const crack = Math.abs(Math.sin((u * 7 + v * 3) * Math.PI * 2 + blotch * 4));
-      const line = crack > 0.985 ? 0.72 : 1;
-      const cream = mix([232, 220, 198], [244, 236, 214], n * 0.55 + blotch * 0.45);
-      const dirt = mix(cream, [186, 168, 140], hair * 0.18);
-      return { color: [dirt[0] * line, dirt[1] * line, dirt[2] * line], height: 0.35 + n * 0.25 + hair * 0.08, roughness: 0.92 };
+      const n = tileNoise(u, v, 22, 5);
+      const blotch = tileNoise(u * 0.55, v * 0.55, 9, 4);
+      const hair = tileNoise(u, v, 90, 2);
+      const leak = Math.pow(Math.max(0, tileNoise(u * 4.2, v * 0.7, 14, 3) - 0.62) * 2.4, 1.6);
+      const pit = Math.pow(tileNoise(u, v, 70, 2), 8);
+      const cream = mix([214, 200, 176], [238, 228, 204], n * 0.5 + blotch * 0.5);
+      const dirt = mix(cream, [148, 128, 102], Math.min(1, hair * 0.22 + leak * 0.55 + pit * 0.35));
+      const moss = mix(dirt, [92, 108, 62], leak * 0.22);
+      return {
+        color: moss,
+        height: 0.28 + n * 0.32 + hair * 0.12 + pit * 0.4,
+        roughness: 0.78 + blotch * 0.18 + leak * 0.08,
+      };
     },
-    1.4,
+    2.2,
   );
 }
 
@@ -426,7 +431,7 @@ export function metalTexture(): TextureSet {
 export function leatherTexture(): TextureSet {
   return buildTextureSet(
     'leather',
-    128,
+    256,
     (_x, _y, u, v) => {
       const n = tileNoise(u, v, 22, 4);
       return { color: mix([72, 42, 28], [130, 86, 52], n), height: n, roughness: 0.7 };
@@ -455,27 +460,41 @@ export function knitBeanieTexture(): TextureSet {
 export function skinTexture(base: [number, number, number], name: string): TextureSet {
   return buildTextureSet(
     `skin-${name}`,
-    128,
+    256,
     (_x, _y, u, v) => {
       const n = tileNoise(u, v, 12, 3);
       const pores = tileNoise(u, v, 70, 2);
+      const veins = Math.pow(Math.max(0, tileNoise(u * 0.8, v * 1.4, 18, 3) - 0.55) * 2, 2);
       const c = mix(base, [Math.min(255, base[0] + 18), Math.min(255, base[1] + 12), Math.min(255, base[2] + 8)], n * 0.5 + pores * 0.2);
-      return { color: c, height: pores * 0.15, roughness: 0.55 };
+      const flushed = mix(c, [Math.min(255, base[0] + 28), Math.max(0, base[1] - 8), Math.max(0, base[2] - 6)], veins * 0.35);
+      return { color: flushed, height: pores * 0.22, roughness: 0.38 + pores * 0.22 };
     },
     0.6,
   );
 }
 
-const matCache = new Map<string, THREE.MeshStandardMaterial>();
+const matCache = new Map<string, THREE.MeshPhysicalMaterial>();
 
 export function pbrMat(
   tex: TextureSet,
-  opts: { color?: number; metalness?: number; roughness?: number; emissive?: number; emissiveIntensity?: number; bump?: number } = {},
-): THREE.MeshStandardMaterial {
-  const key = `${tex.map.uuid}-${opts.color ?? 0xffffff}-${opts.metalness ?? 0}-${opts.roughness ?? 1}-${opts.emissive ?? 0}-${opts.emissiveIntensity ?? 0}`;
+  opts: {
+    color?: number;
+    metalness?: number;
+    roughness?: number;
+    emissive?: number;
+    emissiveIntensity?: number;
+    bump?: number;
+    sheen?: number;
+    sheenColor?: number;
+    clearcoat?: number;
+    clearcoatRoughness?: number;
+    env?: number;
+  } = {},
+): THREE.MeshPhysicalMaterial {
+  const key = `${tex.map.uuid}-${opts.color ?? 0xffffff}-${opts.metalness ?? 0}-${opts.roughness ?? 1}-${opts.sheen ?? 0}-${opts.clearcoat ?? 0}-${opts.env ?? 1.3}`;
   const cached = matCache.get(key);
-  if (cached) return cached;
-  const m = new THREE.MeshStandardMaterial({
+  if (cached) return cached as THREE.MeshPhysicalMaterial;
+  const m = new THREE.MeshPhysicalMaterial({
     map: tex.map,
     normalMap: tex.normalMap,
     roughnessMap: tex.roughnessMap,
@@ -484,8 +503,13 @@ export function pbrMat(
     roughness: opts.roughness ?? 1,
     emissive: opts.emissive ?? 0,
     emissiveIntensity: opts.emissiveIntensity ?? 0,
-    envMapIntensity: 1.1,
+    envMapIntensity: opts.env ?? 1.35,
     normalScale: new THREE.Vector2(opts.bump ?? 1, opts.bump ?? 1),
+    sheen: opts.sheen ?? 0,
+    sheenColor: opts.sheenColor ?? 0xffffff,
+    sheenRoughness: 0.55,
+    clearcoat: opts.clearcoat ?? 0,
+    clearcoatRoughness: opts.clearcoatRoughness ?? 0.45,
   });
   matCache.set(key, m);
   return m;
@@ -493,16 +517,35 @@ export function pbrMat(
 
 export function colorMat(
   color: number,
-  opts: { roughness?: number; metalness?: number; emissive?: number; emissiveIntensity?: number; map?: THREE.Texture } = {},
-): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
+  opts: {
+    roughness?: number;
+    metalness?: number;
+    emissive?: number;
+    emissiveIntensity?: number;
+    map?: THREE.Texture;
+    sheen?: number;
+    sheenColor?: number;
+    clearcoat?: number;
+    transmission?: number;
+    ior?: number;
+    thickness?: number;
+    env?: number;
+  } = {},
+): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
     color,
     ...(opts.map ? { map: opts.map } : {}),
-    roughness: opts.roughness ?? 0.6,
+    roughness: opts.roughness ?? 0.62,
     metalness: opts.metalness ?? 0,
     emissive: opts.emissive ?? 0,
     emissiveIntensity: opts.emissiveIntensity ?? 0,
-    envMapIntensity: 1,
+    envMapIntensity: opts.env ?? 1.2,
+    sheen: opts.sheen ?? 0,
+    sheenColor: opts.sheenColor ?? 0xffffff,
+    clearcoat: opts.clearcoat ?? 0,
+    transmission: opts.transmission ?? 0,
+    ior: opts.ior ?? 1.5,
+    thickness: opts.thickness ?? 0,
   });
 }
 
