@@ -4,128 +4,54 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jogo da Bolha Dev</title>
-    <meta name="description" content="RPG de ação 3D. Derrote o REAL OFICIAL!" />
+    <meta name="description" content="jogo em stand by, estamos ajustando" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0a14'/%3E%3Ccircle cx='8' cy='7' r='5' fill='%23ffd54f'/%3E%3C/svg%3E"
     />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rubik:wght@400;600;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/src/style.css" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #0b0a14;
+        color: #f5e6c8;
+        font-family: Rubik, system-ui, sans-serif;
+      }
+      .standby {
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 32px 24px;
+      }
+      .kicker {
+        margin: 0 0 18px;
+        font-size: 13px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #b7ad99;
+      }
+      .message {
+        margin: 0;
+        max-width: 16em;
+        font-size: clamp(22px, 4vw, 34px);
+        font-weight: 600;
+        line-height: 1.45;
+        color: #ffd54f;
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
-
-    <div id="hud" class="hidden">
-      <div id="vignette"></div>
-      <div id="hud-left">
-        <div id="hero-card">
-          <img id="hero-portrait" alt="" />
-          <div>
-            <div id="hero-name" class="pixel">NICOLAS</div>
-            <div id="hero-level">Nível 1</div>
-          </div>
-        </div>
-        <div class="bar hp"><div id="hp-fill" class="fill"></div><span id="hp-text">100 / 100</span></div>
-        <div class="bar xp"><div id="xp-fill" class="fill"></div><span id="xp-text">XP 0 / 60</span></div>
-        <div id="bag">Moedas <b id="coin-count">0</b> · Cookies <b id="cookie-count">0</b></div>
-      </div>
-
-      <div id="hud-right">
-        <div id="objective"><div class="label pixel">OBJETIVO</div><div id="objective-text"></div></div>
-        <div id="kills">Eliminados: <b id="kill-count">0</b></div>
-        <div id="difficulty-hud">Dificuldade <b>8</b>/10</div>
-      </div>
-
-      <div id="combo" class="hidden"><span id="combo-count">0</span> COMBO</div>
-
-      <div id="boss-bar" class="hidden">
-        <div id="boss-name" class="pixel">REAL OFICIAL</div>
-        <div class="bar boss"><div id="boss-fill" class="fill"></div></div>
-      </div>
-
-      <div id="prompt" class="hidden"></div>
-
-      <div id="skills">
-        <div class="skill" id="skill-attack"><div class="key">LMB</div><div class="name">Atacar</div><div class="cd"></div></div>
-        <div class="skill" id="skill-1"><div class="key">1</div><div class="name" id="sk1-name">Habilidade</div><div class="cd" id="sk1-cd"></div></div>
-        <div class="skill" id="skill-2"><div class="key">2</div><div class="name" id="sk2-name">Habilidade</div><div class="cd" id="sk2-cd"></div></div>
-        <div class="skill" id="skill-3"><div class="key">3</div><div class="name" id="sk3-name">Habilidade</div><div class="cd" id="sk3-cd"></div></div>
-        <div class="skill" id="skill-c"><div class="key">C</div><div class="name">Cookie</div><div class="cd"></div></div>
-      </div>
-      <div id="toasts"></div>
-    </div>
-
-    <div id="dialogue" class="hidden">
-      <div class="dialogue-card">
-        <div id="dialogue-name" class="pixel"></div>
-        <div id="dialogue-title"></div>
-        <p id="dialogue-body"></p>
-        <p id="dialogue-ask" class="hidden"></p>
-        <div id="dialogue-options"></div>
-        <button type="button" id="dialogue-close" class="btn small hidden">Fechar (E / ESC)</button>
-      </div>
-    </div>
-
-    <div id="screen-title" class="screen">
-      <div class="screen-bg"></div>
-      <div class="screen-content">
-        <div class="kicker pixel">JOGO DA BOLHA DEV</div>
-        <h1 class="pixel standby-copy">jogo em stand by, estamos ajustando</h1>
-      </div>
-    </div>
-
-    <div id="screen-select" class="screen hidden">
-      <div class="screen-bg dim"></div>
-      <div class="screen-content">
-        <h2 class="pixel">ESCOLHA SEU HEROI</h2>
-        <div id="hero-cards"></div>
-        <button id="btn-back" class="btn small">Voltar</button>
-      </div>
-    </div>
-
-    <div id="screen-pause" class="screen hidden">
-      <div class="screen-bg dim"></div>
-      <div class="screen-content">
-        <h2 class="pixel">PAUSADO</h2>
-        <p class="sub"><span id="difficulty-pause">Dificuldade 8 / 10</span>. <kbd>ESC</kbd> solta o mouse. Clique para voltar. <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> lançam habilidades. <kbd>E</kbd> fala com NPCs.</p>
-        <button id="btn-resume" class="btn pixel">VOLTAR AO JOGO</button>
-        <div class="quality-row">
-          <span>Qualidade</span>
-          <button id="btn-q-high" class="btn small">Alta</button>
-          <button id="btn-q-med" class="btn small">Média</button>
-        </div>
-        <button id="btn-quit" class="btn small">Sair para o título</button>
-      </div>
-    </div>
-
-    <div id="screen-dead" class="screen hidden">
-      <div class="screen-bg red"></div>
-      <div class="screen-content">
-        <h2 class="pixel red">VOCE VIROU CORTE</h2>
-        <p class="sub" id="dead-text">Você acorda no acampamento.</p>
-        <button id="btn-respawn" class="btn pixel">RENASCER</button>
-      </div>
-    </div>
-
-    <div id="screen-victory" class="screen hidden">
-      <div class="screen-bg"></div>
-      <div class="screen-content">
-        <div class="kicker pixel">O REINADO DOS CORTES ACABOU</div>
-        <h1 class="pixel gold">VENCEU!</h1>
-        <p class="sub" id="victory-text"></p>
-        <button id="btn-again" class="btn pixel">JOGAR DE NOVO</button>
-      </div>
-    </div>
-
-    <div id="loading" class="screen hidden">
-      <div class="screen-content">
-        <h2 class="pixel">GERANDO MUNDO...</h2>
-        <div class="bar load"><div id="load-fill" class="fill"></div></div>
-      </div>
-    </div>
-
-    <script type="module" src="/src/main.ts"></script>
+    <main class="standby">
+      <p class="kicker">Jogo da Bolha Dev</p>
+      <h1 class="message">jogo em stand by, estamos ajustando</h1>
+    </main>
   </body>
 </html>
