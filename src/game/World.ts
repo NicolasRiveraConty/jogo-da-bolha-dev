@@ -51,6 +51,11 @@ export class World {
     elon: new THREE.Vector3(),
     pedro: new THREE.Vector3(),
   };
+  readonly dens: Record<'deyvin' | 'elon' | 'pedro', Landmark> = {
+    deyvin: { x: 0, y: 0, z: 0 },
+    elon: { x: 0, y: 0, z: 0 },
+    pedro: { x: 0, y: 0, z: 0 },
+  };
   readonly castleBounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
   readonly obstacles: Obstacle[] = [];
   gateOpen = false;
@@ -149,6 +154,12 @@ export class World {
     this.tower.z = 68;
     this.castle.x = 142;
     this.castle.z = 142;
+    this.dens.deyvin.x = 26;
+    this.dens.deyvin.z = 148;
+    this.dens.elon.x = 154;
+    this.dens.elon.z = 28;
+    this.dens.pedro.x = 50;
+    this.dens.pedro.z = 102;
 
     const { res, sizeX, sizeZ } = this;
     for (let z = 0; z < res; z++) {
@@ -197,15 +208,19 @@ export class World {
 
     this.carvePath(this.spawn.x, this.spawn.z, this.tower.x, this.tower.z);
     this.carvePath(this.tower.x, this.tower.z, this.castle.x - 18, this.castle.z);
+    this.carvePath(this.spawn.x, this.spawn.z, this.dens.deyvin.x, this.dens.deyvin.z);
+    this.carvePath(this.spawn.x, this.spawn.z, this.dens.elon.x, this.dens.elon.z);
+    this.carvePath(this.spawn.x, this.spawn.z, this.dens.pedro.x, this.dens.pedro.z);
+    this.carvePath(this.dens.pedro.x, this.dens.pedro.z, this.tower.x, this.tower.z);
 
-    const placeBoss = (spot: THREE.Vector3, x: number, z: number) => {
-      const h = Math.max(spawnH, this.heightAt(x, z));
-      flatten(x, z, 7, h);
-      spot.set(x, h, z);
+    const placeArena = (spot: Landmark, radius: number) => {
+      const h = Math.max(spawnH + 0.4, this.heightAt(spot.x, spot.z));
+      flatten(spot.x, spot.z, radius, h);
+      spot.y = h;
     };
-    placeBoss(this.bossSpots.deyvin, 70, 46);
-    placeBoss(this.bossSpots.elon, 86, 60);
-    placeBoss(this.bossSpots.pedro, 99, 52);
+    placeArena(this.dens.deyvin, 11);
+    placeArena(this.dens.elon, 11);
+    placeArena(this.dens.pedro, 11);
     onProgress?.(0.4);
 
     this.buildTerrain();
@@ -216,6 +231,9 @@ export class World {
     this.buildCamp(spawnH);
     this.buildTower(towerH);
     this.buildCastle(castleH);
+    this.buildDeyvinCafe(this.dens.deyvin.y);
+    this.buildElonPad(this.dens.elon.y);
+    this.buildPedroHq(this.dens.pedro.y);
     onProgress?.(0.95);
   }
 
@@ -288,9 +306,16 @@ export class World {
   }
 
   private nearPath(x: number, z: number): number {
-    const d1 = distToSeg(x, z, this.spawn.x, this.spawn.z, this.tower.x, this.tower.z);
-    const d2 = distToSeg(x, z, this.tower.x, this.tower.z, this.castle.x - 18, this.castle.z);
-    const d = Math.min(d1, d2);
+    const segs: [number, number, number, number][] = [
+      [this.spawn.x, this.spawn.z, this.tower.x, this.tower.z],
+      [this.tower.x, this.tower.z, this.castle.x - 18, this.castle.z],
+      [this.spawn.x, this.spawn.z, this.dens.deyvin.x, this.dens.deyvin.z],
+      [this.spawn.x, this.spawn.z, this.dens.elon.x, this.dens.elon.z],
+      [this.spawn.x, this.spawn.z, this.dens.pedro.x, this.dens.pedro.z],
+      [this.dens.pedro.x, this.dens.pedro.z, this.tower.x, this.tower.z],
+    ];
+    let d = 999;
+    for (const [ax, az, bx, bz] of segs) d = Math.min(d, distToSeg(x, z, ax, az, bx, bz));
     return THREE.MathUtils.clamp(1 - (d - 1.2) / 2.2, 0, 1);
   }
 
@@ -349,7 +374,7 @@ export class World {
 
   private nearLandmark(x: number, z: number, r: number): boolean {
     const d = (l: { x: number; z: number }) => Math.hypot(x - l.x, z - l.z);
-    return d(this.spawn) < r || d(this.tower) < r || d(this.castle) < r + 16;
+    return d(this.spawn) < r || d(this.tower) < r || d(this.castle) < r + 16 || d(this.dens.deyvin) < r || d(this.dens.elon) < r || d(this.dens.pedro) < r;
   }
 
   private addBoxObs(minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number) {
@@ -453,6 +478,115 @@ export class World {
     this.group.add(door);
     this.obstacles.push({ kind: 'cyl', x, z, r: r - 0.15, y0: level + 0.4, y1: level + h });
     this.addCampfire(x - r - 3.5, level, z);
+  }
+
+  private buildDeyvinCafe(level: number) {
+    const { x, z } = this.dens.deyvin;
+    const wood = pbrMat(woodTexture(), { roughness: 0.75 });
+    const roof = pbrMat(roofTexture(), { roughness: 0.7 });
+    const orange = colorMat(0xc45a1a, { roughness: 0.55 });
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(9, 0.18, 9), wood);
+    deck.position.set(x, level + 0.09, z);
+    deck.receiveShadow = true;
+    this.group.add(deck);
+    const stall = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.2, 2.4), wood);
+    stall.position.set(x + 2.6, level + 1.2, z + 2.8);
+    stall.castShadow = true;
+    this.group.add(stall);
+    const awning = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.12, 3.2), orange);
+    awning.position.set(x + 2.6, level + 2.4, z + 2.6);
+    this.group.add(awning);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.2, 2.8), roof);
+    top.position.set(x + 2.6, level + 2.55, z + 2.8);
+    this.group.add(top);
+    this.addBoxObs(x + 1.1, x + 4.1, level, level + 2.6, z + 1.7, z + 4.0);
+    const stage = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.35, 2.2), wood);
+    stage.position.set(x - 2.4, level + 0.28, z - 2.2);
+    this.group.add(stage);
+    const mic = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 1.4, 8), colorMat(0x222226, { metalness: 0.6, roughness: 0.3 }));
+    mic.position.set(x - 2.4, level + 1.1, z - 2.2);
+    this.group.add(mic);
+    this.addCampfire(x - 3.6, level, z + 1.2);
+    for (const [sx, sz] of [
+      [-1.2, 1.4],
+      [0.2, 1.8],
+      [1.4, 0.6],
+    ] as const) {
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.55, 10), wood);
+      st.position.set(x + sx, level + 0.4, z + sz);
+      this.group.add(st);
+    }
+    this.bossSpots.deyvin.set(x - 0.4, level, z + 0.2);
+  }
+
+  private buildElonPad(level: number) {
+    const { x, z } = this.dens.elon;
+    const steel = colorMat(0xb8c0cc, { metalness: 0.82, roughness: 0.28 });
+    const dark = colorMat(0x1a1a22, { metalness: 0.4, roughness: 0.45 });
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(7.2, 7.4, 0.28, 24), dark);
+    pad.position.set(x, level + 0.14, z);
+    pad.receiveShadow = true;
+    this.group.add(pad);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(6.2, 0.12, 8, 28), steel);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(x, level + 0.32, z);
+    this.group.add(ring);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + 0.4;
+      const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.35, 3.4, 0.35), steel);
+      pylon.position.set(x + Math.cos(a) * 5.4, level + 1.7, z + Math.sin(a) * 5.4);
+      pylon.castShadow = true;
+      this.group.add(pylon);
+    }
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 4.2, 12), steel);
+    body.position.set(x + 4.2, level + 2.3, z + 3.6);
+    body.castShadow = true;
+    this.group.add(body);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.4, 12), colorMat(0xffffff, { metalness: 0.3, roughness: 0.35 }));
+    nose.position.set(x + 4.2, level + 5.1, z + 3.6);
+    this.group.add(nose);
+    this.addBoxObs(x + 3.5, x + 4.9, level, level + 5.5, z + 2.9, z + 4.3);
+    const light = new THREE.PointLight(0xa8d8ff, 7, 16, 1.6);
+    light.position.set(x, level + 3.2, z);
+    this.group.add(light);
+    this.fireLights.push(light);
+    this.bossSpots.elon.set(x, level, z);
+  }
+
+  private buildPedroHq(level: number) {
+    const { x, z } = this.dens.pedro;
+    const wall = pbrMat(fabricTexture([32, 64, 120], 'conty'), { roughness: 0.7 });
+    const gold = colorMat(0xe6c35a, { metalness: 0.8, roughness: 0.3, emissive: 0x553300, emissiveIntensity: 0.1 });
+    const cobble = pbrMat(cobbleTexture(), { roughness: 0.85 });
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(10, 0.2, 8.4), cobble);
+    floor.position.set(x, level + 0.1, z);
+    floor.receiveShadow = true;
+    this.group.add(floor);
+    const h = 3.6;
+    const back = new THREE.Mesh(new THREE.BoxGeometry(10, h, 0.35), wall);
+    back.position.set(x, level + h / 2, z + 4);
+    back.castShadow = true;
+    this.group.add(back);
+    const left = new THREE.Mesh(new THREE.BoxGeometry(0.35, h, 8.4), wall);
+    left.position.set(x - 4.85, level + h / 2, z);
+    this.group.add(left);
+    const right = left.clone();
+    right.position.x = x + 4.85;
+    this.group.add(right);
+    this.addBoxObs(x - 5.1, x + 5.1, level, level + h, z + 3.7, z + 4.3);
+    this.addBoxObs(x - 5.15, x - 4.55, level, level + h, z - 4.2, z + 4.2);
+    this.addBoxObs(x + 4.55, x + 5.15, level, level + h, z - 4.2, z + 4.2);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(10.4, 0.22, 8.8), gold);
+    roof.position.set(x, level + h + 0.1, z);
+    this.group.add(roof);
+    const sign = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 0.12), gold);
+    sign.position.set(x, level + h + 0.55, z - 4.1);
+    this.group.add(sign);
+    const desk = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.7, 1.1), pbrMat(woodTexture(), { roughness: 0.7 }));
+    desk.position.set(x, level + 0.55, z + 1.6);
+    this.group.add(desk);
+    this.addCampfire(x - 6.2, level, z - 2.4);
+    this.bossSpots.pedro.set(x, level, z - 2.4);
   }
 
   private buildCastle(level: number) {

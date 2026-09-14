@@ -89,7 +89,7 @@ export const MOBS: Record<MobKind, MobDef> = {
   deyvin: {
     kind: 'deyvin',
     name: 'ManoDeyvin',
-    hp: 230,
+    hp: 250,
     damage: 12,
     speed: 3.2,
     xp: 130,
@@ -103,22 +103,22 @@ export const MOBS: Record<MobKind, MobDef> = {
   elon: {
     kind: 'elon',
     name: 'Elon Musk',
-    hp: 250,
-    damage: 12,
+    hp: 280,
+    damage: 13,
     speed: 3.15,
     xp: 150,
     coins: 32,
     meleeRange: 2.3,
     attackCooldown: 1.18,
     aggroRange: 17,
-    ranged: { cooldown: 2.5, speed: 13, damage: 9, color: 0xffffff, size: 0.36, minRange: 4, name: 'Tweet' },
+    ranged: { cooldown: 2.2, speed: 14, damage: 11, color: 0xffffff, size: 0.4, minRange: 3.8, name: 'Tweet' },
     scale: 1.48,
     lines: ['To the moon!', 'We will tweet about this.', '42.0', 'Let that sink in.'],
   },
   pedro: {
     kind: 'pedro',
     name: 'Pedro — Conty',
-    hp: 270,
+    hp: 310,
     damage: 13,
     speed: 3.05,
     xp: 165,
@@ -132,7 +132,7 @@ export const MOBS: Record<MobKind, MobDef> = {
   helio: {
     kind: 'helio',
     name: 'HELIO, capanga do REAL OFICIAL',
-    hp: 300,
+    hp: 340,
     damage: 14,
     speed: 3.35,
     xp: 190,
@@ -147,15 +147,15 @@ export const MOBS: Record<MobKind, MobDef> = {
   boss: {
     kind: 'boss',
     name: 'REAL OFICIAL',
-    hp: 720,
-    damage: 16,
-    speed: 2.8,
-    xp: 700,
-    coins: 80,
-    meleeRange: 3.1,
-    attackCooldown: 1.55,
-    aggroRange: 28,
-    ranged: { cooldown: 2.3, speed: 12, damage: 12, color: 0xff3d5a, size: 0.48, minRange: 4.5, name: 'Corte de Reels' },
+    hp: 1280,
+    damage: 19,
+    speed: 3.05,
+    xp: 900,
+    coins: 110,
+    meleeRange: 3.2,
+    attackCooldown: 1.2,
+    aggroRange: 30,
+    ranged: { cooldown: 2.05, speed: 13, damage: 14, color: 0xff3d5a, size: 0.52, minRange: 3.8, name: 'Corte de Reels' },
     scale: 1.7,
     lines: ['Você vai virar CORTE!', '10 milhões de views!', 'Croc croc... pipoca!', 'Sem contexto fica melhor!'],
   },
@@ -176,21 +176,26 @@ export const NPCS: NpcDef[] = [
   { id: 'anderson', name: 'Anderson', title: 'Hotfix humano', greet: 'Relaxa. Hotfix: HP cheio e habilidades no ponto.' },
 ];
 
-/** Dificuldade de 1 (fácil) a 10 (difícil). 6 é o equilíbrio atual. */
-export const DIFFICULTY = 6;
+/** Dificuldade de 1 (fácil) a 10 (difícil). 8 é o equilíbrio atual. */
+export const DIFFICULTY = 8;
 
 function clampDifficulty(d: number): number {
   return Math.max(1, Math.min(10, Math.round(d)));
 }
 
-/** Golpe da espada/halter. Dificuldade 6 = +25% sobre o valor base. */
+/** Golpe da espada/halter. Dificuldade 8 = dano base. */
 export function meleeDamageMul(d = DIFFICULTY): number {
-  return 1.25 - 0.0625 * (clampDifficulty(d) - 6);
+  return 1 - 0.05 * (clampDifficulty(d) - 8);
 }
 
-/** Vida dos inimigos. Dificuldade 6 = −20% sobre o valor base. */
+/** Vida dos inimigos. Dificuldade 8 = +5% sobre o valor de dados. */
 export function enemyHpMul(d = DIFFICULTY): number {
-  return 0.8 + 0.05 * (clampDifficulty(d) - 6);
+  return 1.05 + 0.08 * (clampDifficulty(d) - 8);
+}
+
+/** Dano que os inimigos causam. Dificuldade 8 = +15%. */
+export function enemyDamageMul(d = DIFFICULTY): number {
+  return 1.15 + 0.08 * (clampDifficulty(d) - 8);
 }
 
 export const XP_TABLE = [0, 60, 150, 280, 450, 680, 980, 1400, 1900];

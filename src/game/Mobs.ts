@@ -27,6 +27,8 @@ export class Mob {
   moving = 0;
   stunned = 0;
   weak = 0;
+  invuln = 0;
+  roundFloor = 0;
   private materials: THREE.MeshStandardMaterial[] = [];
   private origEmissive = new Map<THREE.MeshStandardMaterial, number>();
 
@@ -70,14 +72,16 @@ export class Mob {
   }
 
   takeDamage(amount: number, from: THREE.Vector3 | null, knockPower = 6): void {
+    if (this.invuln > 0) return;
     const mul = this.weak > 0 ? 1.35 : 1;
     this.hp -= amount * mul;
+    if (this.roundFloor > 0 && this.hp < this.roundFloor) this.hp = this.roundFloor;
     this.flash = 0.16;
     if (from) {
       const dir = this.pos.clone().sub(from);
       dir.y = 0;
       dir.normalize();
-      const mass = this.def.kind === 'boss' ? 0.22 : 0.42;
+      const mass = this.def.kind === 'boss' ? 0.18 : 0.42;
       this.knock.add(dir.multiplyScalar(knockPower * mass));
     }
     if (this.hp <= 0) this.dead = true;
@@ -120,6 +124,7 @@ export class Mob {
 
   updateVisuals(dt: number): void {
     this.animT += dt;
+    this.invuln = Math.max(0, this.invuln - dt);
     this.model.animate(this.animT, this.moving);
     if (this.attackAnim >= 0) {
       this.attackAnim += dt / 0.4;
