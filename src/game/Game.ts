@@ -731,12 +731,22 @@ export class Game {
     if (!this.talking || this.talkStep !== 'choose' || !this.talkOptions || !this.talkNpc) return;
     const option = this.talkOptions[i];
     if (!option) return;
-    this.talkStep = 'reply';
     this.applyTalkEffect(option.effect);
-    this.hud.showTalkReply(option.reply);
     const short = option.reply.split(/[.!?]/)[0] + '.';
-    this.texts.say(this.talkNpc.model.group.position.clone().add(new THREE.Vector3(0, 2.2, 0)), short, '#cfe8ff');
+    this.texts.say(this.talkNpc.model.group.position.clone().add(new THREE.Vector3(0, 2.2, 0)), option.ask ?? short, '#cfe8ff');
     Sfx.select();
+    if (option.followUp?.length) {
+      this.talkOptions = option.followUp;
+      this.talkStep = 'choose';
+      this.hud.showTalkReply(option.reply, {
+        ask: option.ask,
+        options: option.followUp.map((o) => o.label),
+        onPick: (j) => this.pickTalk(j),
+      });
+      return;
+    }
+    this.talkStep = 'reply';
+    this.hud.showTalkReply(option.reply);
   }
 
   private applyTalkEffect(effect: TalkOption['effect']): void {

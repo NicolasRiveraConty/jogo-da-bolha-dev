@@ -299,6 +299,13 @@ kbd {
   line-height: 1.45;
   color: var(--text);
 }
+#dialogue-ask {
+  margin: 10px 0 4px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--gold);
+}
 #dialogue-options {
   display: flex;
   flex-direction: column;

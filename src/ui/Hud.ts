@@ -135,6 +135,41 @@ export class Hud {
     $('dialogue-name').textContent = name;
     $('dialogue-title').textContent = title;
     $('dialogue-body').textContent = body;
+    $('dialogue-ask').textContent = '';
+    $('dialogue-ask').classList.add('hidden');
+    this.fillTalkOptions(options, onPick);
+    $('dialogue-close').classList.add('hidden');
+    $('dialogue').classList.remove('hidden');
+  }
+
+  showTalkReply(body: string, followUp?: { ask?: string; options: string[]; onPick: (i: number) => void }): void {
+    $('dialogue-body').textContent = body;
+    const ask = $('dialogue-ask');
+    if (followUp?.ask) {
+      ask.textContent = followUp.ask;
+      ask.classList.remove('hidden');
+    } else {
+      ask.textContent = '';
+      ask.classList.add('hidden');
+    }
+    if (followUp?.options.length) {
+      this.fillTalkOptions(followUp.options, followUp.onPick);
+      $('dialogue-close').classList.add('hidden');
+    } else {
+      $('dialogue-options').classList.add('hidden');
+      $('dialogue-close').classList.remove('hidden');
+    }
+  }
+
+  hideTalk(): void {
+    $('dialogue').classList.add('hidden');
+    $('dialogue-options').innerHTML = '';
+    $('dialogue-ask').textContent = '';
+    $('dialogue-ask').classList.add('hidden');
+    $('dialogue-close').classList.add('hidden');
+  }
+
+  private fillTalkOptions(options: string[], onPick: (i: number) => void): void {
     const list = $('dialogue-options');
     list.innerHTML = '';
     list.classList.remove('hidden');
@@ -148,20 +183,6 @@ export class Hud {
       btn.addEventListener('click', () => onPick(i));
       list.appendChild(btn);
     });
-    $('dialogue-close').classList.add('hidden');
-    $('dialogue').classList.remove('hidden');
-  }
-
-  showTalkReply(body: string): void {
-    $('dialogue-body').textContent = body;
-    $('dialogue-options').classList.add('hidden');
-    $('dialogue-close').classList.remove('hidden');
-  }
-
-  hideTalk(): void {
-    $('dialogue').classList.add('hidden');
-    $('dialogue-options').innerHTML = '';
-    $('dialogue-close').classList.add('hidden');
   }
 
   setBoss(name: string | null, frac = 0): void {

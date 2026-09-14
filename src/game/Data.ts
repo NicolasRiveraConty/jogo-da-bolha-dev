@@ -189,6 +189,8 @@ export interface NpcDef {
 export interface TalkOption {
   label: string;
   reply: string;
+  ask?: string;
+  followUp?: TalkOption[];
   effect?: 'cookie' | 'resume' | 'hotfix';
 }
 
@@ -197,12 +199,25 @@ export const TALKS: Record<'anderson' | 'banhos', TalkOption[]> = {
     {
       label: 'Perguntar ao Anderson sobre a Conty.',
       reply:
-        'A Conty é o SaaS de finanças da galera. Boleto, taxa, pix e planilha com cara de app. O Nicolas vende a visão, o Pedro cobra ROI, e eu que tomo o hotfix quando o deploy explode na sexta.',
+        'A Conty conecta marcas a criadores de conteúdo. É o sistema operacional de campanhas com creators: achar o perfil certo, briefing, entrega, pagamento e performance num lugar só. Sem planilha e sem perseguir UGC no WhatsApp. Olha lá: appconty.com',
+      ask: 'Você precisa de vídeos do UGC para sua empresa?',
+      followUp: [
+        {
+          label: 'Sim',
+          reply:
+            'Então a Conty é pra você. Marca de um lado, creator do outro, campanha no ar e UGC saindo. Entra em appconty.com e monta a operação.',
+        },
+        {
+          label: 'Não',
+          reply:
+            'Beleza. Quando a empresa precisar de UGC, a Conty tá lá: conecta a marca ao creator e tira a campanha da planilha. appconty.com',
+        },
+      ],
     },
     {
       label: 'Sugerir uma alteração no app da Conty',
       reply:
-        'Alteração no app da Conty? Manda o PR. Se for menos clique no boleto e um pix que realmente funciona, eu topo. Se for reescrever tudo em outra stack, não. Já quebrou uma vez. Não vai ser duas.',
+        'Alteração no app da Conty? Manda o PR. Se for match de creator mais rápido, briefing menos burocrático ou pagamento que não trava a campanha, eu topo. Se for reescrever tudo em outra stack, não. Já quebrou uma vez. Não vai ser duas.',
     },
     {
       label: 'Reclamar sobre o Claude',
@@ -233,7 +248,7 @@ export const TALKS: Record<'anderson' | 'banhos', TalkOption[]> = {
 export const NPCS: NpcDef[] = [
   { id: 'banhos', name: 'Sergio Banhos', title: 'SaaS de currículos · 20 anos', greet: 'Opa! O que você precisa?' },
   { id: 'almeida', name: 'Almeida', title: 'Dev forte', greet: 'Bora melhorar essa arma. Traz umas moedas que eu faço o upgrade.' },
-  { id: 'anderson', name: 'Anderson', title: 'Hotfix humano', greet: 'Fala. O que você quer saber?' },
+  { id: 'anderson', name: 'Anderson Dev', title: 'Hotfix humano · Conty', greet: 'Fala. O que você quer saber?' },
 ];
 
 /** Dificuldade de 1 (fácil) a 10 (difícil). 8 é o equilíbrio atual. */
