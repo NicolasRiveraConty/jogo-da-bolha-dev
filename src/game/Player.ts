@@ -3,9 +3,9 @@ import { attachToHand, LOOKS, makeDumbbell, makePerson, makeSword, type Humanoid
 import type { HeroDef } from './Data';
 import type { World } from './World';
 
-const GRAVITY = 26;
-const JUMP = 8.6;
-const WALK = 5.2;
+const GRAVITY = 24;
+const JUMP = 8.5;
+const WALK = 5.6;
 
 export class Player {
   readonly pos = new THREE.Vector3();
@@ -23,6 +23,12 @@ export class Player {
   private walkT = 0;
   speedMul = 1;
   dmgMul = 1;
+  private coyote = 0;
+  private jumpBuf = 0;
+  private camPos = new THREE.Vector3();
+  private camReady = false;
+  private landBoost = 0;
+  private wasGround = true;
 
   constructor(
     readonly camera: THREE.PerspectiveCamera,
@@ -48,11 +54,12 @@ export class Player {
   teleport(x: number, y: number, z: number): void {
     this.pos.set(x, y, z);
     this.vel.set(0, 0, 0);
+    this.camReady = false;
   }
 
   look(dx: number, dy: number): void {
-    this.yaw -= dx * 0.002;
-    this.pitch -= dy * 0.002;
+    this.yaw -= dx * 0.00215;
+    this.pitch -= dy * 0.00215;
     this.pitch = Math.max(-1.15, Math.min(0.45, this.pitch));
   }
 
@@ -81,18 +88,25 @@ export class Player {
     this.inWater = this.world.isWaterAt(this.pos.x, this.pos.y + 0.4, this.pos.z);
     if (this.inWater) speed *= 0.55;
 
-    const accel = this.onGround ? 16 : 6;
+    const accel = this.onGround ? 24 : 11;
     this.vel.x += (wish.x * speed - this.vel.x) * Math.min(1, accel * dt);
     this.vel.z += (wish.z * speed - this.vel.z) * Math.min(1, accel * dt);
+
+    this.coyote = Math.max(0, this.coyote - dt);
+    this.jumpBuf = Math.max(0, this.jumpBuf - dt);
+    if (this.keys.has('Space')) this.jumpBuf = 0.12;
+    if (this.onGround) this.coyote = 0.14;
 
     if (this.inWater) {
       this.vel.y += (3.2 - this.vel.y) * Math.min(1, 4 * dt);
       if (this.keys.has('Space')) this.vel.y = 4.2;
     } else {
       this.vel.y -= GRAVITY * dt;
-      if (this.keys.has('Space') && this.onGround) {
+      if (this.jumpBuf > 0 && (this.onGround || this.coyote > 0)) {
         this.vel.y = JUMP;
         this.onGround = false;
+        this.coyote = 0;
+        this.jumpBuf = 0;
       }
     }
     this.vel.y = Math.max(this.vel.y, -36);
@@ -107,7 +121,7 @@ export class Player {
     const walkAmt = Math.min(1, horiz / (WALK * 1.15));
     this.walkT += dt * (0.7 + walkAmt);
     if (this.swingT >= 0) {
-      this.swingT += dt / 0.34;
+      this.swingT += dt / 0.22;
       if (this.swingT >= 1) this.swingT = -1;
     }
 
@@ -128,8 +142,18 @@ export class Player {
         break;
       }
     }
-    this.camera.position.copy(eye).addScaledVector(dir, dist);
-    this.camera.lookAt(eye.x, eye.y - 0.05, eye.z);
+    const desired = eye.clone().addScaledVector(dir, dist);
+    if (!this.camReady) {
+      this.camPos.copy(desired);
+      this.camReady = true;
+    } else this.camPos.lerp(desired, 1 - Math.exp(-16 * dt));
+    if (!this.wasGround && this.onGround) this.landBoost = 0.18;
+    this.wasGround = this.onGround;
+    this.landBoost = Math.max(0, this.landBoost - dt * 1.8);
+    const bob = Math.sin(this.walkT * 11) * 0.032 * walkAmt * (this.onGround ? 1 : 0.15);
+    this.camera.position.copy(this.camPos);
+    this.camera.position.y += bob - this.landBoost * 0.42;
+    this.camera.lookAt(eye.x, eye.y - 0.05 - this.landBoost * 0.15, eye.z);
   }
 
   private moveXZ(dx: number, dz: number): void {
@@ -137,7 +161,7 @@ export class Player {
     const nz = this.pos.z + dz;
     const ground = this.world.heightAt(nx, nz);
     const step = ground - this.pos.y;
-    if (this.onGround && step > 0.95) return;
+    if (this.onGround && step > 1.2) return;
     if (this.world.blocked(nx, this.pos.y + 0.15, nz, this.width, this.height - 0.2)) {
       if (!this.world.blocked(this.pos.x + dx, this.pos.y + 0.15, this.pos.z, this.width, this.height - 0.2)) {
         this.pos.x += dx;

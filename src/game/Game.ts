@@ -91,6 +91,11 @@ export class Game {
   private lastXp = -1;
   private worldReady = false;
   curriculum = false;
+  private iframe = 0;
+  private hitStop = 0;
+  private combo = 0;
+  private comboT = 0;
+  private attackQueued = false;
 
   constructor(
     private hud: Hud,
@@ -260,7 +265,10 @@ export class Game {
     });
     document.addEventListener('mousedown', (e) => {
       if (!this.locked || this.phase !== 'playing') return;
-      if (e.button === 0) this.attack();
+      if (e.button === 0) {
+        if (this.attackCd > 0.04 || this.player?.swinging) this.attackQueued = true;
+        else this.attack();
+      }
     });
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('keydown', (e) => {
@@ -353,6 +361,9 @@ export class Game {
     this.bossFight = { round: 1, shift: 0, ringT: 0, popcornT: 0 };
     this.cds = [0, 0, 0];
     this.lastHp = this.lastXp = -1;
+    this.iframe = this.hitStop = this.combo = this.comboT = 0;
+    this.attackQueued = false;
+    this.hud.setCombo(0);
     this.hud.setBoss(null);
     this.hud.hideTalk();
     this.talking = false;
@@ -519,8 +530,10 @@ export class Game {
       this.applyLevelStats();
       this.hp = this.maxHp;
       Sfx.levelUp();
-      this.hud.toast(`NÍVEL ${this.level}!`, true);
-      if (this.player) this.particles.ring(this.player.pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 0x66bb6a, 2.4);
+      this.hud.toast(`NÍVEL ${this.level}! HP cheio.`, true);
+      this.shake = Math.max(this.shake, 0.28);
+      this.hitStop = Math.max(this.hitStop, 0.1);
+      if (this.player) this.particles.ring(this.player.pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 0x66bb6a, 3.2, 32);
     }
   }
 
@@ -528,7 +541,7 @@ export class Game {
     if (!this.player || this.attackCd > 0 || !this.hero) return;
     if (!this.player.swing()) return;
     this.attackCd = this.hero.attackCooldown;
-    if (!this.meleeHit(3.4, 0.42, this.damage * meleeDamageMul(), 7, true)) Sfx.miss();
+    if (!this.meleeHit(3.7, 0.32, this.damage * meleeDamageMul(), 7.5, true)) Sfx.miss();
   }
 
   special(): void {
@@ -640,10 +653,17 @@ export class Game {
 
   hurtMob(m: Mob, dmg: number, knock: number, crit = false): void {
     if (!this.player || m.dead) return;
-    const amount = Math.round(dmg * (0.85 + Math.random() * 0.3));
+    this.combo += 1;
+    this.comboT = 1.75;
+    if (this.combo >= 4 && this.combo % 2 === 0) crit = true;
+    const amount = Math.round(dmg * (0.85 + Math.random() * 0.3) * (this.combo >= 8 ? 1.12 : 1));
     m.takeDamage(amount, this.player.pos, knock);
     this.texts.damage(m.center, amount, crit);
-    this.particles.burst(m.center, crit ? 0xffd54f : 0xffffff, crit ? 14 : 7, 3, 0.08, 0.5);
+    this.particles.burst(m.center, crit ? 0xffd54f : 0xffffff, crit ? 18 : 9, crit ? 4.2 : 3.2, 0.09, 0.55);
+    this.hitStop = Math.max(this.hitStop, crit ? 0.075 : 0.04);
+    this.shake = Math.max(this.shake, crit ? 0.24 : 0.11);
+    this.hud.setCombo(this.combo);
+    if (this.combo === 5 || this.combo === 10 || this.combo === 20) this.hud.toast(`${this.combo} COMBO!`, this.combo >= 10);
     crit ? Sfx.crit() : Sfx.hit();
     if (m.state === 'idle' || m.state === 'wander') {
       m.state = 'chase';
@@ -785,17 +805,22 @@ export class Game {
 
   damagePlayer(amount: number, from: THREE.Vector3 | null): void {
     if (!this.player || !this.hero || this.phase !== 'playing') return;
+    if (this.iframe > 0) return;
+    this.iframe = 0.55;
+    this.combo = 0;
+    this.comboT = 0;
+    this.hud.setCombo(0);
     const dmg = Math.max(1, Math.round(amount * (1 - this.hero.armor) * enemyDamageMul() * (0.9 + Math.random() * 0.2)));
     this.hp -= dmg;
     this.hud.hit();
-    this.shake = Math.max(this.shake, 0.16);
+    this.shake = Math.max(this.shake, 0.18);
     Sfx.hit();
     if (from) {
       const push = this.player.pos.clone().sub(from);
       push.y = 0;
-      push.normalize().multiplyScalar(3.6);
+      push.normalize().multiplyScalar(2.05);
       this.player.vel.add(push);
-      this.player.vel.y = Math.max(this.player.vel.y, 2.2);
+      this.player.vel.y = Math.max(this.player.vel.y, 1.15);
     }
     if (this.hp <= 0) this.die();
   }
@@ -821,9 +846,20 @@ export class Game {
     this.hud.setKills(this.kills);
     this.hud.setCoins(this.coins);
     const color = m.def.kind === 'helio' ? 0x7cff4a : m.def.kind === 'boss' ? 0xff3d5a : m.def.kind === 'elon' ? 0xffffff : m.def.kind === 'pedro' ? 0xffd54f : 0xffa726;
-    this.particles.burst(m.center, color, m.isBoss ? 55 : 16, m.isBoss ? 7 : 4, m.isBoss ? 0.2 : 0.1, 1.1);
-    this.gainXp(m.def.xp);
+    this.particles.burst(m.center, color, m.isBoss ? 70 : 22, m.isBoss ? 8 : 5, m.isBoss ? 0.22 : 0.12, 1.2);
+    this.particles.ring(m.pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 0xffd54f, m.isBoss ? 4.5 : 2.2, m.isBoss ? 28 : 14);
+    const bonus = this.combo > 3 ? Math.round(m.def.xp * 0.06 * Math.min(12, this.combo)) : 0;
+    this.gainXp(m.def.xp + bonus);
+    this.texts.say(m.center.add(new THREE.Vector3(0, 0.8, 0)), `+${m.def.xp + bonus} XP`, '#ffd54f');
+    this.texts.say(m.center.add(new THREE.Vector3(0.4, 0.35, 0)), `+${m.def.coins}`, '#ffe082');
+    this.hitStop = Math.max(this.hitStop, m.isBoss ? 0.16 : 0.08);
+    this.shake = Math.max(this.shake, m.isBoss ? 0.48 : 0.22);
     Sfx.coin();
+    if (m.isBoss) {
+      this.cookies += 1;
+      this.hud.setCookies(this.cookies);
+      this.hud.toast(`${m.def.name} derrubado! +1 cookie`, true);
+    }
     if (m === this.helio) {
       this.hud.toast('HELIO DERROTADO! O portão dourado se abre.', true);
       this.world.openGate();
@@ -862,9 +898,11 @@ export class Game {
 
   private frame(): void {
     this.timer.update();
-    const dt = Math.min(0.05, this.timer.getDelta());
+    const raw = Math.min(0.05, this.timer.getDelta());
+    this.hitStop = Math.max(0, this.hitStop - raw);
+    const dt = this.hitStop > 0 ? raw * 0.2 : raw;
     this.time += dt;
-    this.hud.update(dt);
+    this.hud.update(raw);
     if (this.phase === 'menu') {
       if (this.worldReady) {
         const s = this.world.spawn;
@@ -913,6 +951,12 @@ export class Game {
     const player = this.player!;
     if (this.phase === 'playing') this.playTime += dt;
     this.attackCd = Math.max(0, this.attackCd - dt);
+    this.iframe = Math.max(0, this.iframe - dt);
+    this.comboT = Math.max(0, this.comboT - dt);
+    if (this.comboT <= 0 && this.combo > 0) {
+      this.combo = 0;
+      this.hud.setCombo(0);
+    }
     this.cds = this.cds.map((c) => Math.max(0, c - dt));
     this.buffT = Math.max(0, this.buffT - dt);
     this.regenT = Math.max(0, this.regenT - dt);
@@ -924,12 +968,16 @@ export class Game {
 
     const alive = this.phase === 'playing';
     if (!alive) player.keys.clear();
+    if (this.attackQueued && this.attackCd <= 0 && !player.swinging && alive && this.locked) {
+      this.attackQueued = false;
+      this.attack();
+    }
     player.update(dt);
 
     const speed = Math.hypot(player.vel.x, player.vel.z);
     if (player.onGround && speed > 1) {
       this.stepT += dt * speed;
-      if (this.stepT > 2.8) {
+      if (this.stepT > 2.2) {
         this.stepT = 0;
         Sfx.step();
       }
@@ -1037,8 +1085,8 @@ export class Game {
         const inMelee = dist < m.def.meleeRange + 0.2;
         const ranged = m.def.ranged;
         const round = m === this.boss ? this.bossFight.round : 1;
-        const volley = m === this.boss ? (round === 1 ? 1 : round === 2 ? 3 : 5) : m === this.helio && this.bossPhaseFlags.helioRage ? 3 : 1;
-        const cdMul = m === this.boss ? (round === 1 ? 1 : round === 2 ? 0.72 : 0.5) : 1;
+        const volley = m === this.boss ? (round === 1 ? 1 : round === 2 ? 2 : 3) : m === this.helio && this.bossPhaseFlags.helioRage ? 2 : 1;
+        const cdMul = m === this.boss ? (round === 1 ? 1 : round === 2 ? 0.88 : 0.74) : 1;
         const wantsRanged = ranged && dist > ranged.minRange && m.rangedCd <= 0;
         if (wantsRanged && ranged) {
           m.rangedCd = ranged.cooldown * cdMul;
@@ -1049,7 +1097,7 @@ export class Game {
             m.attackCd = m.def.attackCooldown * cdMul;
             m.attackAnim = 0;
             const target = m;
-            const meleeDmg = m.def.damage * (m === this.boss ? 0.85 + round * 0.22 : 1);
+            const meleeDmg = m.def.damage * (m === this.boss ? 0.72 + round * 0.12 : 1);
             setTimeout(() => {
               if (target.dead || this.phase !== 'playing') return;
               const d = Math.hypot(this.player!.pos.x - target.pos.x, this.player!.pos.z - target.pos.z);
@@ -1057,7 +1105,7 @@ export class Game {
             }, 180);
           }
         } else {
-          const spd = m.def.speed * (m === this.boss ? 0.92 + round * 0.18 : 1);
+          const spd = m.def.speed * (m === this.boss ? 0.88 + round * 0.1 : 1);
           const dir = new THREE.Vector3(ppos.x - m.pos.x, 0, ppos.z - m.pos.z).normalize();
           for (const o of this.mobs) {
             if (o === m || o.dead) continue;
@@ -1084,7 +1132,7 @@ export class Game {
           m.moving = 1;
         } else {
           m.state = 'idle';
-          m.hp = Math.min(m.maxHp, m.hp + m.maxHp * dt * 0.1);
+          m.hp = Math.min(m.maxHp, m.hp + m.maxHp * dt * 0.035);
         }
       } else if (!m.isBoss) {
         m.wanderT -= dt;
@@ -1101,7 +1149,7 @@ export class Game {
           if (!m.tryMove(this.world, m.wanderDir.x * m.def.speed * 0.4 * dt, m.wanderDir.z * m.def.speed * 0.4 * dt)) m.wanderT = 0;
           m.moving = 0.4;
         }
-      } else if (m.hp < m.maxHp) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * dt * 0.04);
+      } else if (m.hp < m.maxHp) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * dt * 0.012);
 
       m.updateVertical(this.world, dt);
       m.syncTransform();
@@ -1124,17 +1172,17 @@ export class Game {
     if (b.state === 'chase' && b.invuln <= 0) {
       this.bossFight.popcornT -= dt;
       if (this.bossFight.popcornT <= 0) {
-        this.bossFight.popcornT = this.bossFight.round === 1 ? 4.2 : this.bossFight.round === 2 ? 3.05 : 2.05;
-        const n = this.bossFight.round === 1 ? 10 : this.bossFight.round === 2 ? 14 : 18;
-        this.throwPopcorn(b, n, 10 + this.bossFight.round, 8 + this.bossFight.round * 2);
+        this.bossFight.popcornT = this.bossFight.round === 1 ? 5.4 : this.bossFight.round === 2 ? 4.2 : 3.3;
+        const n = this.bossFight.round === 1 ? 7 : this.bossFight.round === 2 ? 10 : 12;
+        this.throwPopcorn(b, n, 9 + this.bossFight.round, Math.round((6 + this.bossFight.round * 1.4) * 0.7));
       }
     }
 
     if (b.state === 'chase' && this.bossFight.round >= 2 && b.invuln <= 0) {
       this.bossFight.ringT -= dt;
       if (this.bossFight.ringT <= 0) {
-        this.bossFight.ringT = this.bossFight.round === 2 ? 4.2 : 2.7;
-        this.ringFire(b, this.bossFight.round === 2 ? 8 : 12, 9 + this.bossFight.round, 10 + this.bossFight.round * 2, 0xff3d5a, 0.28);
+        this.bossFight.ringT = this.bossFight.round === 2 ? 5.4 : 3.8;
+        this.ringFire(b, this.bossFight.round === 2 ? 6 : 8, 8 + this.bossFight.round, Math.round((8 + this.bossFight.round) * 0.7), 0xff3d5a, 0.26);
       }
     }
   }
@@ -1142,10 +1190,10 @@ export class Game {
   private startBossRound(round: number, b: Mob): void {
     if (this.bossFight.round >= round) return;
     this.bossFight.round = round;
-    this.bossFight.shift = 2.5;
-    this.bossFight.ringT = 1.2;
-    this.bossFight.popcornT = 0.55;
-    b.invuln = 2.5;
+    this.bossFight.shift = 1.6;
+    this.bossFight.ringT = 1.6;
+    this.bossFight.popcornT = 1.35;
+    b.invuln = 1.55;
     b.roundFloor = round === 2 ? Math.round(b.maxHp / 3) : 0;
     b.hp = Math.max(b.hp, b.roundFloor);
     b.pos.copy(b.home);
@@ -1154,12 +1202,7 @@ export class Game {
     this.shake = 0.55;
     this.particles.ring(b.pos.clone(), 0xff3d5a, 7, 48);
     if (round === 2) this.hud.toast('ROUND 2 — LOOP INFINITO', true);
-    else {
-      const heal = Math.round(b.maxHp * 0.08);
-      b.hp = Math.min(b.maxHp, b.hp + heal);
-      this.texts.heal(b.center, heal);
-      this.hud.toast('ROUND 3 — CORTE FINAL', true);
-    }
+    else this.hud.toast('ROUND 3 — CORTE FINAL', true);
   }
 
   private throwPopcorn(m: Mob, count: number, speed: number, damage: number): void {

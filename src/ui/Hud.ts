@@ -118,6 +118,15 @@ export class Hud {
     this.killCount.textContent = String(n);
   }
 
+  setCombo(n: number): void {
+    const el = document.getElementById('combo');
+    const count = document.getElementById('combo-count');
+    if (!el || !count) return;
+    el.classList.toggle('hidden', n < 2);
+    count.textContent = String(n);
+    el.classList.toggle('hot', n >= 8);
+  }
+
   setCoins(n: number): void {
     $('coin-count').textContent = String(n);
   }

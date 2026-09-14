@@ -230,6 +230,23 @@ kbd {
 #kills b {
   color: var(--text);
 }
+#combo {
+  position: absolute;
+  right: 28px;
+  top: 46%;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 18px;
+  color: var(--gold);
+  text-shadow: 3px 3px 0 #000, 0 0 18px rgba(255, 213, 79, 0.55);
+  pointer-events: none;
+}
+#combo.hot {
+  color: #ff8a65;
+  font-size: 22px;
+}
+#combo-count {
+  font-size: 28px;
+}
 #difficulty-hud {
   margin-top: 8px;
   font-size: 13px;

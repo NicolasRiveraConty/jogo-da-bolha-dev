@@ -231,10 +231,10 @@ export class FloatingText {
   }
 
   damage(pos: THREE.Vector3, amount: number, crit = false): void {
-    const sprite = this.makeSprite(String(Math.round(amount)), crit ? '#ffd54f' : '#ffffff', crit ? 52 : 40);
+    const sprite = this.makeSprite(String(Math.round(amount)), crit ? '#ffd54f' : '#ffffff', crit ? 58 : 46);
     sprite.position.copy(pos).add(new THREE.Vector3((Math.random() - 0.5) * 0.5, 0.3, (Math.random() - 0.5) * 0.5));
     this.group.add(sprite);
-    this.list.push({ sprite, vel: new THREE.Vector3((Math.random() - 0.5) * 1.2, 2.4, (Math.random() - 0.5) * 1.2), life: 0.9 });
+    this.list.push({ sprite, vel: new THREE.Vector3((Math.random() - 0.5) * 1.4, 3.1, (Math.random() - 0.5) * 1.4), life: 1.05 });
   }
 
   heal(pos: THREE.Vector3, amount: number): void {
