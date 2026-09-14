@@ -517,6 +517,12 @@ h1.pixel {
   margin: 0 0 20px;
   text-shadow: 5px 5px 0 #000, 0 0 30px rgba(255, 213, 79, 0.35);
 }
+h1.standby-copy {
+  font-size: 20px;
+  line-height: 1.8;
+  max-width: 22ch;
+  margin: 0 auto;
+}
 h1.gold {
   color: var(--gold);
 }
