@@ -131,6 +131,39 @@ export class Hud {
     this.prompt.classList.toggle('hidden', !text);
   }
 
+  showTalk(name: string, title: string, body: string, options: string[], onPick: (i: number) => void): void {
+    $('dialogue-name').textContent = name;
+    $('dialogue-title').textContent = title;
+    $('dialogue-body').textContent = body;
+    const list = $('dialogue-options');
+    list.innerHTML = '';
+    list.classList.remove('hidden');
+    options.forEach((label, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dialogue-option';
+      const kbd = document.createElement('kbd');
+      kbd.textContent = String(i + 1);
+      btn.append(kbd, document.createTextNode(label));
+      btn.addEventListener('click', () => onPick(i));
+      list.appendChild(btn);
+    });
+    $('dialogue-close').classList.add('hidden');
+    $('dialogue').classList.remove('hidden');
+  }
+
+  showTalkReply(body: string): void {
+    $('dialogue-body').textContent = body;
+    $('dialogue-options').classList.add('hidden');
+    $('dialogue-close').classList.remove('hidden');
+  }
+
+  hideTalk(): void {
+    $('dialogue').classList.add('hidden');
+    $('dialogue-options').innerHTML = '';
+    $('dialogue-close').classList.add('hidden');
+  }
+
   setBoss(name: string | null, frac = 0): void {
     this.bossBar.classList.toggle('hidden', !name);
     if (name) {

@@ -142,7 +142,14 @@ export const MOBS: Record<MobKind, MobDef> = {
     aggroRange: 17,
     ranged: { cooldown: 2.6, speed: 12, damage: 9, color: 0x7cff4a, size: 0.38, minRange: 3.5, name: 'Gosma de taxa' },
     scale: 1.58,
-    lines: ['O chefe vai te CORTAR!', 'Taxa do capanga!', 'Goblins também cobram juros!', 'Sai da frente do castelo!'],
+    lines: [
+      'App de finanças não perdoa.',
+      'Taxa, juros e spread!',
+      'Saldo no vermelho, igual você.',
+      'Boleto venceu. Você também.',
+      'Você vai ser quebrado pelo REAL OFICIAL, assim como ele quebra tudo.',
+      'O ROI dele é negativo. O seu também vai ser.',
+    ],
   },
   boss: {
     kind: 'boss',
@@ -157,7 +164,16 @@ export const MOBS: Record<MobKind, MobDef> = {
     aggroRange: 30,
     ranged: { cooldown: 2.05, speed: 13, damage: 14, color: 0xff3d5a, size: 0.52, minRange: 3.8, name: 'Corte de Reels' },
     scale: 1.7,
-    lines: ['Você vai virar CORTE!', '10 milhões de views!', 'Croc croc... pipoca!', 'Sem contexto fica melhor!'],
+    lines: [
+      'Eu AMO pipoca.',
+      'Gosto de pipoca.',
+      'Como pipoca o dia todo.',
+      'Toma pipoca!',
+      'Toma corte!',
+      'Pipoca e corte, o combo perfeito.',
+      'Croc croc... pipoca!',
+      'Você vai virar CORTE!',
+    ],
   },
 };
 
@@ -170,10 +186,54 @@ export interface NpcDef {
   greet: string;
 }
 
+export interface TalkOption {
+  label: string;
+  reply: string;
+  effect?: 'cookie' | 'resume' | 'hotfix';
+}
+
+export const TALKS: Record<'anderson' | 'banhos', TalkOption[]> = {
+  anderson: [
+    {
+      label: 'Perguntar ao Anderson sobre a Conty.',
+      reply:
+        'A Conty é o SaaS de finanças da galera. Boleto, taxa, pix e planilha com cara de app. O Nicolas vende a visão, o Pedro cobra ROI, e eu que tomo o hotfix quando o deploy explode na sexta.',
+    },
+    {
+      label: 'Sugerir uma alteração no app da Conty',
+      reply:
+        'Alteração no app da Conty? Manda o PR. Se for menos clique no boleto e um pix que realmente funciona, eu topo. Se for reescrever tudo em outra stack, não. Já quebrou uma vez. Não vai ser duas.',
+    },
+    {
+      label: 'Reclamar sobre o Claude',
+      reply:
+        'Reclamar do Claude? Junta a fila. Ele inventa código, esquece o contexto e ainda fala com confiança de staff. Pior que estagiário com ChatGPT. Aí eu que abro o hotfix às 23h.',
+    },
+  ],
+  banhos: [
+    {
+      label: 'Pedir para ele fazer um currículo',
+      reply:
+        'Currículo turbo saindo. Vinte anos de SaaS, sem enrolação, sem "apaixonado por desafios". Tá na mão — XP extra enquanto você caça o REAL OFICIAL.',
+      effect: 'resume',
+    },
+    {
+      label: 'Pedir um cookie.',
+      reply: 'Cookie? Sempre. Chocolate, crocante, receita de guerra. Come com C. Não paga imposto de cookie.',
+      effect: 'cookie',
+    },
+    {
+      label: 'Dizer para ele vir morar para São Paulo',
+      reply:
+        'Morar em São Paulo? Meu chapa, eu já sobrevivi a vinte anos de SaaS. Trânsito, aluguel e pão de queijo caro? Só se o cookie vier junto. Me convence com um contrato e um forno.',
+    },
+  ],
+};
+
 export const NPCS: NpcDef[] = [
-  { id: 'banhos', name: 'Sergio Banhos', title: 'SaaS de currículos · 20 anos', greet: 'Opa! Peguei uns cookies e um currículo turbo pra você.' },
+  { id: 'banhos', name: 'Sergio Banhos', title: 'SaaS de currículos · 20 anos', greet: 'Opa! O que você precisa?' },
   { id: 'almeida', name: 'Almeida', title: 'Dev forte', greet: 'Bora melhorar essa arma. Traz umas moedas que eu faço o upgrade.' },
-  { id: 'anderson', name: 'Anderson', title: 'Hotfix humano', greet: 'Relaxa. Hotfix: HP cheio e habilidades no ponto.' },
+  { id: 'anderson', name: 'Anderson', title: 'Hotfix humano', greet: 'Fala. O que você quer saber?' },
 ];
 
 /** Dificuldade de 1 (fácil) a 10 (difícil). 8 é o equilíbrio atual. */

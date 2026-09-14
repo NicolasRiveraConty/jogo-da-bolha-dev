@@ -1,6 +1,28 @@
 import * as THREE from 'three';
 import type { World } from './World';
 
+function makePopcornKernel(): THREE.Group {
+  const g = new THREE.Group();
+  const palettes = [
+    { color: 0xf6ead0, roughness: 0.94 },
+    { color: 0xf0c14a, roughness: 0.78 },
+    { color: 0x8a5a22, roughness: 0.96 },
+  ];
+  const n = 3 + Math.floor(Math.random() * 2);
+  for (let i = 0; i < n; i++) {
+    const pal = i === 0 ? palettes[0] : palettes[Math.random() < 0.28 ? 2 : 1];
+    const mat = new THREE.MeshStandardMaterial({ color: pal.color, roughness: pal.roughness, metalness: 0.02 });
+    const r = 0.055 + Math.random() * 0.05;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 6), mat);
+    m.scale.set(0.65 + Math.random() * 0.75, 0.5 + Math.random() * 0.85, 0.65 + Math.random() * 0.7);
+    m.position.set((Math.random() - 0.5) * 0.09, (Math.random() - 0.5) * 0.08, (Math.random() - 0.5) * 0.09);
+    m.castShadow = true;
+    g.add(m);
+  }
+  g.scale.setScalar(1.2 + Math.random() * 0.45);
+  return g;
+}
+
 // ---------------------------------------------------------------- Partículas
 
 interface Particle {
@@ -80,12 +102,14 @@ export class Particles {
 // ---------------------------------------------------------------- Projéteis
 
 export interface Projectile {
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   vel: THREE.Vector3;
   damage: number;
   life: number;
   fromPlayer: boolean;
   color: number;
+  gravity?: number;
+  kind?: 'popcorn';
   light?: THREE.PointLight;
 }
 
@@ -108,20 +132,37 @@ export class Projectiles {
     return p;
   }
 
+  spawnPopcorn(pos: THREE.Vector3, vel: THREE.Vector3, damage: number, gravity = 22): Projectile {
+    const kernel = makePopcornKernel();
+    kernel.position.copy(pos);
+    kernel.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+    this.group.add(kernel);
+    const p: Projectile = { mesh: kernel, vel: vel.clone(), damage, life: 3.8, fromPlayer: false, color: 0xf2dc9a, gravity, kind: 'popcorn' };
+    this.list.push(p);
+    return p;
+  }
+
   remove(p: Projectile): void {
     const i = this.list.indexOf(p);
     if (i >= 0) this.list.splice(i, 1);
     this.group.remove(p.mesh);
-    p.mesh.geometry.dispose();
-    (p.mesh.material as THREE.Material).dispose();
+    p.mesh.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      o.geometry.dispose();
+      const mat = o.material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else (mat as THREE.Material).dispose();
+    });
   }
 
   update(dt: number, onHitWorld: (p: Projectile) => void): void {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const p = this.list[i];
       p.life -= dt;
+      if (p.gravity) p.vel.y -= p.gravity * dt;
       p.mesh.position.addScaledVector(p.vel, dt);
-      p.mesh.rotation.z += dt * 8;
+      p.mesh.rotation.x += dt * (p.kind === 'popcorn' ? 9 : 8);
+      p.mesh.rotation.z += dt * (p.kind === 'popcorn' ? 6 : 8);
       if (p.life <= 0 || this.world.isSolidAt(p.mesh.position.x, p.mesh.position.y, p.mesh.position.z)) {
         onHitWorld(p);
         this.remove(p);
@@ -131,6 +172,22 @@ export class Projectiles {
 }
 
 // ---------------------------------------------------------------- Texto flutuante
+
+function wrapSpeech(text: string, max = 36): string[] {
+  if (text.length <= max) return [text];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > max && cur) {
+      lines.push(cur);
+      cur = w;
+    } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines.slice(0, 3);
+}
 
 interface FloatText {
   sprite: THREE.Sprite;
@@ -147,22 +204,28 @@ export class FloatingText {
     const font = size > 40 ? `700 ${size}px 'Press Start 2P', monospace` : `800 ${size}px Rubik, sans-serif`;
     const ctx = canvas.getContext('2d')!;
     ctx.font = font;
-    const w = Math.ceil(ctx.measureText(text).width) + 24;
+    const lines = text.split('\n');
+    let w = 32;
+    for (const line of lines) w = Math.max(w, Math.ceil(ctx.measureText(line).width) + 24);
+    const lineH = size + 8;
     canvas.width = Math.max(32, w);
-    canvas.height = size + 24;
+    canvas.height = lineH * lines.length + 16;
     ctx.font = font;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineWidth = Math.max(3, size / 6);
     ctx.strokeStyle = outline;
-    ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
     ctx.fillStyle = color;
-    ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+    lines.forEach((line, i) => {
+      const y = 8 + lineH * i + lineH / 2;
+      ctx.strokeText(line, canvas.width / 2, y);
+      ctx.fillText(line, canvas.width / 2, y);
+    });
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sprite = new THREE.Sprite(mat);
-    const scale = size / 60;
+    const scale = (size / 60) * Math.min(1.35, 0.85 + lines.length * 0.18);
     sprite.scale.set((canvas.width / canvas.height) * scale, scale, 1);
     return sprite;
   }
@@ -182,10 +245,12 @@ export class FloatingText {
   }
 
   say(pos: THREE.Vector3, text: string, color = '#ffffff'): void {
-    const sprite = this.makeSprite(text, color, 30);
+    const wrapped = wrapSpeech(text, 36);
+    const size = wrapped.length > 1 || text.length > 36 ? 24 : 30;
+    const sprite = this.makeSprite(wrapped.join('\n'), color, size);
     sprite.position.copy(pos);
     this.group.add(sprite);
-    this.list.push({ sprite, vel: new THREE.Vector3(0, 0.5, 0), life: 2.2 });
+    this.list.push({ sprite, vel: new THREE.Vector3(0, 0.45, 0), life: Math.min(3.6, 2.1 + text.length * 0.018) });
   }
 
   update(dt: number): void {

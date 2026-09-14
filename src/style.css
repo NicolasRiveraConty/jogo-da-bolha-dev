@@ -260,6 +260,76 @@ kbd {
   font-size: 15px;
 }
 
+#dialogue {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 20px 150px;
+  background: rgba(6, 8, 18, 0.45);
+}
+#dialogue.hidden {
+  display: none !important;
+}
+.dialogue-card {
+  width: min(560px, 94vw);
+  background: var(--panel);
+  border: 3px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px 16px;
+  box-shadow: 0 10px 0 rgba(0, 0, 0, 0.45);
+  text-align: left;
+}
+#dialogue-name {
+  color: var(--gold);
+  font-size: 13px;
+  line-height: 1.4;
+  text-shadow: 2px 2px 0 #000;
+}
+#dialogue-title {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--dim);
+}
+#dialogue-body {
+  margin: 12px 0 4px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+}
+#dialogue-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.dialogue-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #141c3a;
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: 'Rubik', sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.45);
+}
+.dialogue-option:hover {
+  background: #23347a;
+  border-color: var(--gold);
+}
+.dialogue-option kbd {
+  margin-right: 8px;
+}
+#dialogue-close {
+  margin-top: 14px;
+}
+
 .quality-row {
   display: flex;
   gap: 10px;

@@ -8,7 +8,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { Sfx } from '../audio/Sfx';
 import type { Hud } from '../ui/Hud';
 import { LOOKS, makePerson } from './Characters';
-import { enemyDamageMul, levelForXp, meleeDamageMul, NPCS, XP_TABLE, type HeroDef, type MobKind } from './Data';
+import { enemyDamageMul, levelForXp, meleeDamageMul, NPCS, TALKS, XP_TABLE, type HeroDef, type MobKind, type TalkOption } from './Data';
 import { FloatingText, Particles, Projectiles, type Projectile } from './Effects';
 import { Mob } from './Mobs';
 import { Player } from './Player';
@@ -60,6 +60,10 @@ export class Game {
 
   phase: Phase = 'menu';
   locked = false;
+  talking = false;
+  private talkStep: 'choose' | 'reply' = 'choose';
+  private talkOptions: TalkOption[] | null = null;
+  private talkNpc: NpcActor | null = null;
   private timer = new THREE.Timer();
   private time = 0;
   private playTime = 0;
@@ -82,7 +86,7 @@ export class Game {
   objective = 0;
   private objectiveT = 0;
   private bossPhaseFlags = { helioRage: false };
-  private bossFight = { round: 1, shift: 0, ringT: 0 };
+  private bossFight = { round: 1, shift: 0, ringT: 0, popcornT: 0 };
   private lastHp = -1;
   private lastXp = -1;
   private worldReady = false;
@@ -243,6 +247,10 @@ export class Game {
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
       if (this.phase === 'playing') {
+        if (this.talking) {
+          this.hud.showScreen(null);
+          return;
+        }
         this.hud.showScreen(this.locked ? null : 'pause');
         if (this.locked) this.player?.keys.clear();
       }
@@ -261,6 +269,16 @@ export class Game {
         this.hud.toast(Sfx.toggleMute() ? 'Som desligado' : 'Som ligado');
         return;
       }
+      if (this.talking) {
+        if (this.talkStep === 'choose') {
+          if (e.code === 'Digit1' || e.code === 'Numpad1') this.pickTalk(0);
+          if (e.code === 'Digit2' || e.code === 'Numpad2') this.pickTalk(1);
+          if (e.code === 'Digit3' || e.code === 'Numpad3') this.pickTalk(2);
+        }
+        if (e.code === 'Escape' || (e.code === 'KeyE' && this.talkStep === 'reply')) this.closeTalk();
+        e.preventDefault();
+        return;
+      }
       if (!this.locked) return;
       if (e.code === 'Digit1' || e.code === 'Numpad1') this.cast(0);
       if (e.code === 'Digit2' || e.code === 'Numpad2') this.cast(1);
@@ -270,8 +288,9 @@ export class Game {
       if (e.code === 'Space') e.preventDefault();
       this.player.keys.add(e.code);
     });
-    document.addEventListener('keyup', (e) => this.player?.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => this.player?.keys.delete(e.code));
     window.addEventListener('blur', () => this.player?.keys.clear());
+    document.getElementById('dialogue-close')?.addEventListener('click', () => this.closeTalk());
   }
 
   requestLock(): void {
@@ -331,10 +350,14 @@ export class Game {
     }
     for (const p of [...this.projectiles.list]) this.projectiles.remove(p);
     this.bossPhaseFlags = { helioRage: false };
-    this.bossFight = { round: 1, shift: 0, ringT: 0 };
+    this.bossFight = { round: 1, shift: 0, ringT: 0, popcornT: 0 };
     this.cds = [0, 0, 0];
     this.lastHp = this.lastXp = -1;
     this.hud.setBoss(null);
+    this.hud.hideTalk();
+    this.talking = false;
+    this.talkOptions = null;
+    this.talkNpc = null;
     this.world.resetGate();
   }
 
@@ -567,7 +590,11 @@ export class Game {
     }
     if (ok) {
       this.cds[i] = sk.cooldown;
-      if (sk.kind !== 'heal' && sk.kind !== 'diet' && sk.kind !== 'buff' && sk.kind !== 'taunt') this.hud.toast(sk.name);
+      if (this.hero.id === 'matheus') {
+        const lines = ['Faça sua dieta.', 'Eu sou o Matheus do Fitfólio.', 'Baixa o EP agora.'];
+        this.texts.say(this.player.eyePos, lines[i % lines.length], '#ef5350');
+        this.hud.toast('Faça sua dieta. Eu sou o Matheus do Fitfólio. Baixa o EP agora.');
+      } else if (sk.kind !== 'heal' && sk.kind !== 'diet' && sk.kind !== 'buff' && sk.kind !== 'taunt') this.hud.toast(sk.name);
     }
   }
 
@@ -644,7 +671,7 @@ export class Game {
   }
 
   interact(): void {
-    if (!this.player) return;
+    if (!this.player || this.talking) return;
     let best: NpcActor | null = null;
     let bd = 2.6;
     for (const n of this.npcs) {
@@ -656,17 +683,7 @@ export class Game {
     }
     if (!best) return;
     const def = NPCS.find((n) => n.id === best!.id)!;
-    if (best.id === 'banhos') {
-      this.cookies += 3;
-      this.hud.setCookies(this.cookies);
-      if (!this.curriculum) {
-        this.curriculum = true;
-        this.xpGain = 1.25;
-        this.gainXp(40);
-        this.hud.toast('Currículo turbo: +25% XP. Cookies na mochila (C).', true);
-      } else this.hud.toast('Mais cookies! Aperte C para comer.');
-      Sfx.coin();
-    } else if (best.id === 'almeida') {
+    if (best.id === 'almeida') {
       const cost = 30 + this.upgrades * 15;
       if (this.upgrades >= 4) this.hud.toast('Arma no talo. Tá lindo.');
       else if (this.coins < cost) this.hud.toast(`Almeida: preciso de ${cost} moedas. Você tem ${this.coins}.`);
@@ -677,13 +694,83 @@ export class Game {
         Sfx.buff();
         this.hud.toast(`Upgrade ${this.upgrades}/4: arma mais forte.`, true);
       }
-    } else {
+      this.texts.say(best.model.group.position.clone().add(new THREE.Vector3(0, 2.1, 0)), def.greet.split('!')[0] + '!', '#cfe8ff');
+      return;
+    }
+    this.openTalk(best);
+  }
+
+  private openTalk(npc: NpcActor): void {
+    const def = NPCS.find((n) => n.id === npc.id)!;
+    const options = TALKS[npc.id as 'anderson' | 'banhos'];
+    if (!options) return;
+    this.talking = true;
+    this.talkStep = 'choose';
+    this.talkOptions = options;
+    this.talkNpc = npc;
+    this.player?.keys.clear();
+    this.hud.setPrompt('');
+    this.hud.showScreen(null);
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (npc.id === 'anderson') {
       this.hp = this.maxHp;
       this.cds = [0, 0, 0];
       Sfx.heal();
-      this.hud.toast('Hotfix do Anderson: HP cheio e skills prontas.', true);
+    } else Sfx.select();
+    this.texts.say(npc.model.group.position.clone().add(new THREE.Vector3(0, 2.1, 0)), def.greet.split('!')[0] + '!', '#cfe8ff');
+    this.hud.showTalk(
+      def.name,
+      def.title,
+      def.greet,
+      options.map((o) => o.label),
+      (i) => this.pickTalk(i),
+    );
+  }
+
+  private pickTalk(i: number): void {
+    if (!this.talking || this.talkStep !== 'choose' || !this.talkOptions || !this.talkNpc) return;
+    const option = this.talkOptions[i];
+    if (!option) return;
+    this.talkStep = 'reply';
+    this.applyTalkEffect(option.effect);
+    this.hud.showTalkReply(option.reply);
+    const short = option.reply.split(/[.!?]/)[0] + '.';
+    this.texts.say(this.talkNpc.model.group.position.clone().add(new THREE.Vector3(0, 2.2, 0)), short, '#cfe8ff');
+    Sfx.select();
+  }
+
+  private applyTalkEffect(effect: TalkOption['effect']): void {
+    if (effect === 'cookie') {
+      this.cookies += 3;
+      this.hud.setCookies(this.cookies);
+      Sfx.coin();
+      this.hud.toast('Cookie do Banhos na mochila. Aperte C para comer.');
+    } else if (effect === 'resume') {
+      if (!this.curriculum) {
+        this.curriculum = true;
+        this.xpGain = 1.25;
+        this.gainXp(40);
+        this.hud.toast('Currículo turbo: +25% XP.', true);
+      } else this.hud.toast('Esse currículo já está na mão.');
+      Sfx.coin();
+    } else if (effect === 'hotfix') {
+      this.hp = this.maxHp;
+      this.cds = [0, 0, 0];
+      Sfx.heal();
     }
-    this.texts.say(best.model.group.position.clone().add(new THREE.Vector3(0, 2.1, 0)), def.greet.split('!')[0] + '!', '#cfe8ff');
+  }
+
+  closeTalk(): void {
+    if (!this.talking) {
+      this.hud.hideTalk();
+      return;
+    }
+    this.talking = false;
+    this.talkOptions = null;
+    this.talkNpc = null;
+    this.hud.hideTalk();
+    this.player?.keys.clear();
+    if (this.phase === 'playing') this.requestLock();
   }
 
   damagePlayer(amount: number, from: THREE.Vector3 | null): void {
@@ -704,6 +791,8 @@ export class Game {
   }
 
   private die(): void {
+    this.talking = false;
+    this.hud.hideTalk();
     this.phase = 'dead';
     this.hp = 0;
     Sfx.stopMusic();
@@ -755,7 +844,7 @@ export class Game {
 
   private mobSay(m: Mob): void {
     if (m.sayCd > 0) return;
-    m.sayCd = 5 + Math.random() * 5;
+    m.sayCd = m.isBoss ? 1.35 + Math.random() * 1.1 : 5 + Math.random() * 5;
     const line = m.def.lines[Math.floor(Math.random() * m.def.lines.length)];
     const color = m.def.kind === 'boss' ? '#ff5c6c' : m.def.kind === 'helio' ? '#9cff57' : m.def.kind === 'elon' ? '#f5f5f5' : m.def.kind === 'pedro' ? '#ffd54f' : '#ffcc80';
     this.texts.say(m.center.add(new THREE.Vector3(0, m.model.height * 0.55, 0)), line, color);
@@ -774,7 +863,10 @@ export class Game {
         this.camera.lookAt(s.x, s.y + 1.2, s.z);
       }
     } else if (this.player) {
-      if (this.locked || this.phase !== 'playing') this.update(dt);
+      if (this.talking) {
+        this.player.keys.clear();
+        this.update(dt);
+      } else if (this.locked || this.phase !== 'playing') this.update(dt);
       else this.player.update(0);
     }
     this.updateEnvironment(dt);
@@ -873,6 +965,10 @@ export class Game {
 
   private updatePrompt(): void {
     if (!this.player) return;
+    if (this.talking) {
+      this.hud.setPrompt('');
+      return;
+    }
     let label = '';
     for (const n of this.npcs) {
       if (n.model.group.position.distanceTo(this.player.pos) < 2.6) {
@@ -967,7 +1063,7 @@ export class Game {
           }
           m.moving = 1;
         }
-        if (Math.random() < dt * 0.07) this.mobSay(m);
+        if (m.isBoss ? Math.random() < dt * 0.55 : Math.random() < dt * 0.07) this.mobSay(m);
       } else if (m.state === 'return') {
         const toHome = m.home.clone().sub(m.pos);
         toHome.y = 0;
@@ -1000,6 +1096,7 @@ export class Game {
       m.updateVertical(this.world, dt);
       m.syncTransform();
       m.updateVisuals(dt);
+      if (m.isBoss && m.state !== 'chase' && Math.random() < dt * 0.28) this.mobSay(m);
       if (m === this.boss) this.updateBossPhases(m, dt);
       if (m === this.helio && !this.bossPhaseFlags.helioRage && m.hp < m.maxHp * 0.5) {
         this.bossPhaseFlags.helioRage = true;
@@ -1013,6 +1110,15 @@ export class Game {
     this.bossFight.shift = Math.max(0, this.bossFight.shift - dt);
     if (this.bossFight.round === 1 && b.hp <= b.maxHp * (2 / 3) + 0.5) this.startBossRound(2, b);
     else if (this.bossFight.round === 2 && b.hp <= b.maxHp * (1 / 3) + 0.5) this.startBossRound(3, b);
+
+    if (b.state === 'chase' && b.invuln <= 0) {
+      this.bossFight.popcornT -= dt;
+      if (this.bossFight.popcornT <= 0) {
+        this.bossFight.popcornT = this.bossFight.round === 1 ? 4.2 : this.bossFight.round === 2 ? 3.05 : 2.05;
+        const n = this.bossFight.round === 1 ? 10 : this.bossFight.round === 2 ? 14 : 18;
+        this.throwPopcorn(b, n, 10 + this.bossFight.round, 8 + this.bossFight.round * 2);
+      }
+    }
 
     if (b.state === 'chase' && this.bossFight.round >= 2 && b.invuln <= 0) {
       this.bossFight.ringT -= dt;
@@ -1028,6 +1134,7 @@ export class Game {
     this.bossFight.round = round;
     this.bossFight.shift = 2.5;
     this.bossFight.ringT = 1.2;
+    this.bossFight.popcornT = 0.55;
     b.invuln = 2.5;
     b.roundFloor = round === 2 ? Math.round(b.maxHp / 3) : 0;
     b.hp = Math.max(b.hp, b.roundFloor);
@@ -1043,6 +1150,26 @@ export class Game {
       this.texts.heal(b.center, heal);
       this.hud.toast('ROUND 3 — CORTE FINAL', true);
     }
+  }
+
+  private throwPopcorn(m: Mob, count: number, speed: number, damage: number): void {
+    const player = this.player!;
+    const origin = m.center.add(new THREE.Vector3(0, 0.55, 0));
+    const target = player.pos.clone().add(new THREE.Vector3(0, 1.05, 0));
+    const dist = origin.distanceTo(target);
+    const gravity = 22;
+    const flight = Math.min(1.2, Math.max(0.45, dist / Math.max(8, speed)));
+    for (let i = 0; i < count; i++) {
+      const aim = target.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2.4, Math.random() * 0.7, (Math.random() - 0.5) * 2.4));
+      const vel = aim.sub(origin).multiplyScalar(1 / flight);
+      vel.y += gravity * flight * 0.5;
+      vel.x += (Math.random() - 0.5) * 2.2;
+      vel.z += (Math.random() - 0.5) * 2.2;
+      this.projectiles.spawnPopcorn(origin.clone(), vel, damage, gravity);
+    }
+    this.particles.burst(origin, 0xf0c14a, 10, 3, 0.08, 0.45);
+    Sfx.magic();
+    this.texts.say(m.center.add(new THREE.Vector3(0, m.model.height * 0.55, 0)), 'Toma pipoca!', '#ffd54f');
   }
 
   private ringFire(m: Mob, count: number, speed: number, damage: number, color: number, size: number): void {
@@ -1073,12 +1200,13 @@ export class Game {
   private updateProjectiles(dt: number): void {
     const player = this.player!;
     const alive = this.phase === 'playing';
-    this.projectiles.update(dt, (p: Projectile) => this.particles.burst(p.mesh.position, p.color, 6, 2, 0.07, 0.4));
+    this.projectiles.update(dt, (p: Projectile) => this.particles.burst(p.mesh.position, p.color, p.kind === 'popcorn' ? 10 : 6, p.kind === 'popcorn' ? 2.6 : 2, 0.07, 0.4));
     if (!alive) return;
     const center = player.pos.clone().add(new THREE.Vector3(0, 0.95, 0));
     for (const p of [...this.projectiles.list]) {
       if (p.fromPlayer) continue;
-      if (p.mesh.position.distanceTo(center) < 0.9) {
+      const hitR = p.kind === 'popcorn' ? 1.05 : 0.9;
+      if (p.mesh.position.distanceTo(center) < hitR) {
         this.damagePlayer(p.damage, p.mesh.position);
         this.particles.burst(p.mesh.position, p.color, 10, 3, 0.09, 0.45);
         this.projectiles.remove(p);
